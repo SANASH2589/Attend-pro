@@ -1,8 +1,19 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import useAuth from '../hooks/useAuth';
 import { AlertCircle } from 'lucide-react';
 
 export default function NotFound() {
+  const { user, role } = useAuth();
+
+  // Determine standard redirection path based on active session role
+  const getHomePath = () => {
+    if (!user) return '/login';
+    if (role === 'super_admin') return '/admin/dashboard';
+    if (role === 'staff') return '/staff/dashboard';
+    return '/login';
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 relative overflow-hidden">
       {/* Background decoration */}
@@ -15,14 +26,14 @@ export default function NotFound() {
 
         <div className="space-y-2">
           <h1 className="text-4xl font-black text-slate-800 tracking-tight">404</h1>
-          <h2 className="text-lg font-bold text-slate-700 tracking-tight">Module Not Found</h2>
+          <h2 className="text-lg font-bold text-slate-700 tracking-tight">Page Not Found</h2>
           <p className="text-xs text-slate-400 font-medium max-w-xs mx-auto leading-relaxed">
-            We searched the academic records but couldn't locate this page. It may have been moved, unassigned, or belongs to a different faculty block.
+            The page you are looking for does not exist, has been moved, or you do not have permission to view it.
           </p>
         </div>
 
         <Link
-          to="/admin/dashboard"
+          to={getHomePath()}
           className="inline-flex items-center justify-center py-2.5 px-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl shadow-md shadow-blue-600/10 hover:shadow-lg transition-all duration-200"
         >
           Return to Dashboard

@@ -1,50 +1,68 @@
-import React, { createContext, useState } from 'react';
+import React, { createContext, useState, useEffect } from 'react';
+import authApi from '../api/auth';
 
 export const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [role, setRole] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // Mock login function
-  const login = (email, password) => {
-    setLoading(true);
-    
-    // Simulate a brief delay to showcase loading spinner transitions
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        // Derive user role from email pattern
-        const emailLower = email.toLowerCase();
-        let assignedRole = 'STAFF';
-        if (emailLower.includes('admin')) {
-          assignedRole = 'SUPER_ADMIN';
-        }
-
-        const authenticatedUser = {
-          name: email.split('@')[0].replace(/[^a-zA-Z]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-          email: email
-        };
-
-        setUser(authenticatedUser);
-        setRole(assignedRole);
+  // Check if session token exists on component mount
+  useEffect(() => {
+    async function restoreSession() {
+      const token = localStorage.getItem('token');
+      if (!token) {
         setLoading(false);
-        resolve({ success: true, user: authenticatedUser, role: assignedRole });
-      }, 600);
-    });
-  };
-
-  // Mock logout function
-  const logout = () => {
-    setLoading(true);
-    return new Promise((resolve) => {
-      setTimeout(() => {
+        return;
+      }
+      try {
+        const profile = await authApi.me();
+        setUser(profile);
+        setRole(profile.role);
+      } catch (err) {
+        console.warn('Authentication session restore failed:', err.message);
+        localStorage.removeItem('token');
         setUser(null);
         setRole(null);
+      } finally {
         setLoading(false);
-        resolve({ success: true });
-      }, 300);
-    });
+      }
+    }
+    restoreSession();
+  }, []);
+
+  /**
+   * Log in user and set context state.
+   */
+  const login = async (email, password) => {
+    setLoading(true);
+    try {
+      const data = await authApi.login(email, password);
+      setUser(data.user);
+      setRole(data.role);
+      return { success: true, user: data.user, role: data.role };
+    } catch (err) {
+      return { success: false, error: err.message || 'Login request failed.' };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Log out user, invalidate context state, and wipe local storage token.
+   */
+  const logout = async () => {
+    setLoading(true);
+    try {
+      await authApi.logout();
+    } catch (err) {
+      console.warn('Auth server signout warning:', err.message);
+    } finally {
+      setUser(null);
+      setRole(null);
+      setLoading(false);
+    }
   };
 
   return (
@@ -53,3 +71,5 @@ export function AuthProvider({ children }) {
     </AuthContext.Provider>
   );
 }
+
+export default AuthContext;

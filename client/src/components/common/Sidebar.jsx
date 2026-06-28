@@ -1,37 +1,104 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, GraduationCap, Users, BookOpen } from 'lucide-react';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { 
+  LayoutDashboard, 
+  GraduationCap, 
+  Users, 
+  BookOpen, 
+  ClipboardCheck, 
+  FileSpreadsheet, 
+  MessageSquare, 
+  History, 
+  LogOut 
+} from 'lucide-react';
 import useAuth from '../../hooks/useAuth';
 import Logo from './Logo';
 import clsx from 'clsx';
 
 export default function Sidebar({ onClose, className = "" }) {
-  const { user, role } = useAuth();
+  const { user, role, logout } = useAuth();
+  const navigate = useNavigate();
   
-  const menuItems = [
-    {
-      label: "Dashboard",
-      path: "/admin/dashboard",
-      icon: LayoutDashboard
-    },
-    {
-      label: "Student Management",
-      path: "/admin/student-management",
-      icon: GraduationCap
-    },
-    {
-      label: "Staff Management",
-      path: "/admin/staff-management",
-      icon: Users
-    },
-    {
-      label: "Class Management",
-      path: "/admin/class-management",
-      icon: BookOpen
+  // Dynamic navigation items based on user role
+  const getMenuItems = () => {
+    if (role === 'super_admin') {
+      return [
+        {
+          label: "Dashboard",
+          path: "/admin/dashboard",
+          icon: LayoutDashboard
+        },
+        {
+          label: "Staff",
+          path: "/admin/staff",
+          icon: Users
+        },
+        {
+          label: "Students",
+          path: "/admin/students",
+          icon: GraduationCap
+        },
+        {
+          label: "Classes",
+          path: "/admin/classes",
+          icon: BookOpen
+        },
+        {
+          label: "Attendance",
+          path: "/admin/attendance",
+          icon: ClipboardCheck
+        },
+        {
+          label: "Reports",
+          path: "/admin/reports",
+          icon: FileSpreadsheet
+        },
+        {
+          label: "SMS Logs",
+          path: "/admin/sms-logs",
+          icon: MessageSquare
+        }
+      ];
+    } else if (role === 'staff') {
+      return [
+        {
+          label: "Dashboard",
+          path: "/staff/dashboard",
+          icon: LayoutDashboard
+        },
+        {
+          label: "Attendance",
+          path: "/staff/attendance",
+          icon: ClipboardCheck
+        },
+        {
+          label: "History",
+          path: "/staff/history",
+          icon: History
+        },
+        {
+          label: "Reports",
+          path: "/staff/reports",
+          icon: FileSpreadsheet
+        }
+      ];
     }
-  ];
+    return [];
+  };
 
-  // Derive initials
+  const menuItems = getMenuItems();
+
+  const handleLogoutClick = async () => {
+    try {
+      await logout();
+      if (onClose) onClose();
+      navigate('/login', { replace: true });
+    } catch (err) {
+      console.error('Logout navigation failed:', err);
+    }
+  };
+
+  // Derive initials for avatar
   const getInitials = (name) => {
     if (!name) return 'U';
     return name
@@ -69,7 +136,7 @@ export default function Sidebar({ onClose, className = "" }) {
                 onClick={onClose}
                 className={({ isActive }) =>
                   clsx(
-                    "flex items-center gap-3 px-4.5 py-3.5 rounded-xl text-sm font-medium transition-all duration-200 group relative",
+                    "flex items-center gap-3 px-4.5 py-3 rounded-xl text-sm font-medium transition-all duration-200 group relative",
                     isActive
                       ? "bg-blue-600 text-white font-semibold shadow-md shadow-blue-600/10"
                       : "text-slate-400 hover:bg-slate-800/60 hover:text-white"
@@ -78,7 +145,7 @@ export default function Sidebar({ onClose, className = "" }) {
               >
                 {({ isActive }) => (
                   <>
-                    <Icon className={clsx("w-5 h-5 transition-transform duration-200 group-hover:scale-105 shrink-0", isActive ? "text-white" : "text-slate-400 group-hover:text-white")} />
+                    <Icon className={clsx("w-4.5 h-4.5 transition-transform duration-200 group-hover:scale-105 shrink-0", isActive ? "text-white" : "text-slate-400 group-hover:text-white")} />
                     <span>{item.label}</span>
                     {isActive && (
                       <span className="absolute right-0 top-1/4 bottom-1/4 w-1 bg-white rounded-l-md" />
@@ -91,8 +158,8 @@ export default function Sidebar({ onClose, className = "" }) {
         </nav>
       </div>
 
-      {/* Sidebar Footer Account Details (Dynamic) */}
-      <div className="p-4 border-t border-slate-800/80 bg-slate-950/20">
+      {/* Sidebar Footer Account Details */}
+      <div className="p-4 border-t border-slate-800/80 bg-slate-950/20 flex flex-col gap-3">
         <div className="flex items-center gap-3 px-2 py-1.5">
           <div className="w-9 h-9 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold shrink-0 text-sm select-none">
             {getInitials(user?.name)}
@@ -100,10 +167,19 @@ export default function Sidebar({ onClose, className = "" }) {
           <div className="overflow-hidden">
             <h4 className="text-xs font-semibold text-white truncate">{user?.name || 'Academic User'}</h4>
             <span className="text-[10px] font-medium text-slate-500 truncate block">
-              {role === 'SUPER_ADMIN' ? 'Super Admin' : 'Staff'} &bull; {user?.email}
+              {role === 'super_admin' ? 'Super Admin' : 'Staff'} &bull; {user?.email}
             </span>
           </div>
         </div>
+
+        {/* Sign Out Button */}
+        <button
+          onClick={handleLogoutClick}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-red-400 bg-red-950/20 hover:bg-red-950/40 border border-red-900/30 hover:border-red-900/60 rounded-xl transition-all duration-200 cursor-pointer"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          <span>Sign Out</span>
+        </button>
       </div>
     </aside>
   );
