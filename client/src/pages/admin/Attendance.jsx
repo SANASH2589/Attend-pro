@@ -4,6 +4,7 @@ import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import attendanceApi from '../../api/attendance';
 import classesApi from '../../api/classes';
+import smsApi from '../../api/sms';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabaseClient';
 import { 
@@ -65,6 +66,10 @@ export default function AttendanceMonitoring() {
 
   // Lock/Unlock confirmation ID state
   const [confirmingAction, setConfirmingAction] = useState(null); // { id, type: 'lock'|'unlock', name }
+
+  // SMS logs in drawer
+  const [drawerSmsLogs, setDrawerSmsLogs] = useState([]);
+  const [smsRetrying, setSmsRetrying] = useState(false);
 
   const fetchStats = async () => {
     try {
@@ -157,6 +162,15 @@ export default function AttendanceMonitoring() {
     try {
       const data = await attendanceApi.getSessionDetail(sessionId);
       setDrawerData(data);
+
+      // Fetch SMS logs for this session
+      try {
+        const smsLogs = await smsApi.getSessionSmsLogs(sessionId);
+        setDrawerSmsLogs(smsLogs || []);
+      } catch (smsErr) {
+        console.warn('SMS logs fetch failed:', smsErr.message);
+        setDrawerSmsLogs([]);
+      }
     } catch (err) {
       showToast(err.message || 'Failed to load details.', 'error');
       setDrawerOpen(false);
@@ -560,6 +574,62 @@ export default function AttendanceMonitoring() {
                       })}
                     </div>
                   </div>
+
+                  {/* SMS Notifications Section */}
+                  {drawerSmsLogs.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider select-none">
+                          SMS Notifications
+                        </h4>
+                        {drawerSmsLogs.filter(l => l.status === 'failed').length > 0 && (
+                          <button
+                            onClick={async () => {
+                              setSmsRetrying(true);
+                              try {
+                                const sessionId = drawerData?.session?.id;
+                                if (sessionId) {
+                                  await smsApi.retrySessionSms(sessionId);
+                                  showToast('SMS retry initiated.', 'success');
+                                  const updatedLogs = await smsApi.getSessionSmsLogs(sessionId);
+                                  setDrawerSmsLogs(updatedLogs || []);
+                                }
+                              } catch (err) {
+                                showToast(err.message || 'Retry failed.', 'error');
+                              } finally {
+                                setSmsRetrying(false);
+                              }
+                            }}
+                            disabled={smsRetrying}
+                            className="text-[10px] font-bold text-blue-600 hover:text-blue-700 transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1"
+                          >
+                            {smsRetrying ? 'Retrying...' : `Retry failed (${drawerSmsLogs.filter(l => l.status === 'failed').length})`}
+                          </button>
+                        )}
+                      </div>
+                      <div className="border border-slate-100 rounded-xl divide-y divide-slate-50 overflow-hidden">
+                        {drawerSmsLogs.map((log) => {
+                          const statusColors = {
+                            sent: 'bg-blue-50 text-blue-600 border-blue-100',
+                            delivered: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+                            failed: 'bg-red-50 text-red-600 border-red-100',
+                            pending: 'bg-amber-50 text-amber-600 border-amber-100'
+                          };
+                          return (
+                            <div key={log.id} className="p-3 hover:bg-slate-50/20 flex items-center justify-between gap-3 transition-colors">
+                              <div className="flex flex-col min-w-0">
+                                <span className="text-xs font-semibold text-slate-700 truncate">{log.student?.full_name || 'Unknown'}</span>
+                                <span className="text-[9px] font-mono text-slate-400 mt-0.5">{log.phone_number}</span>
+                              </div>
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border select-none ${statusColors[log.status] || statusColors.pending}`}>
+                                {log.status ? log.status.charAt(0).toUpperCase() + log.status.slice(1) : 'Pending'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="text-center py-8 text-slate-400 text-xs">

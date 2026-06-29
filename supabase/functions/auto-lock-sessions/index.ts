@@ -7,6 +7,10 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Server URL and internal key for SMS notification trigger
+    const serverUrl = Deno.env.get('SERVER_URL') ?? 'http://localhost:5000';
+    const internalServiceKey = Deno.env.get('INTERNAL_SERVICE_KEY') ?? '';
+
     // 1. Get current Indian time in minutes and date string (UTC + 5:30)
     const now = new Date();
     const indianTime = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
@@ -33,6 +37,24 @@ serve(async (req) => {
     };
 
     const lockedSessions: any[] = [];
+
+    // Helper to trigger SMS notification for a locked session
+    const triggerSmsNotify = async (sessionId: string) => {
+      if (!internalServiceKey) return;
+      try {
+        const response = await fetch(`${serverUrl}/api/v1/sms/session/${sessionId}/notify`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-service-key': internalServiceKey
+          }
+        });
+        const result = await response.json();
+        console.log(`[SMS] Notification triggered for session ${sessionId}:`, result);
+      } catch (err: any) {
+        console.error(`[SMS] Failed to trigger notification for session ${sessionId}:`, err.message);
+      }
+    };
 
     for (const c of (classes || [])) {
       const lockMorning = c.morning_lock ? timeToMinutes(c.morning_lock) : 0;
@@ -64,6 +86,9 @@ serve(async (req) => {
                   session_id: morningSession.id
                 });
               lockedSessions.push({ class_id: c.id, session_type: 'morning', session_id: morningSession.id });
+
+              // Trigger SMS notifications for this locked session
+              await triggerSmsNotify(morningSession.id);
             }
           }
         }
@@ -95,6 +120,9 @@ serve(async (req) => {
                   session_id: eveningSession.id
                 });
               lockedSessions.push({ class_id: c.id, session_type: 'evening', session_id: eveningSession.id });
+
+              // Trigger SMS notifications for this locked session
+              await triggerSmsNotify(eveningSession.id);
             }
           }
         }

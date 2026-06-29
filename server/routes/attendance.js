@@ -3,6 +3,7 @@ const router = express.Router();
 const { supabaseAdmin } = require('../lib/supabase');
 const authMiddleware = require('../middleware/auth');
 const { getStudentAttendanceStats, getClassAttendanceStats } = require('../lib/attendanceStats');
+const { sendAbsenteeNotifications } = require('../services/smsService');
 
 // Helper to convert time "HH:MM" to minutes from midnight
 function timeToMinutes(t) {
@@ -518,6 +519,11 @@ router.put('/session/:sessionId/lock', superAdminOnly, async (req, res) => {
       .single();
 
     if (error) throw error;
+
+    // Fire-and-forget: trigger SMS notifications for absent students
+    sendAbsenteeNotifications(sessionId).catch(smsErr => {
+      console.error('[SMS] Background notification error on lock:', smsErr.message);
+    });
 
     return res.json(updated);
   } catch (err) {

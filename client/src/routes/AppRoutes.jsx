@@ -21,6 +21,9 @@ import Assignments from '../pages/admin/Assignments';
 import StaffAttendance from '../pages/staff/Attendance';
 import StaffHistory from '../pages/staff/History';
 import AdminAttendance from '../pages/admin/Attendance';
+import AdminReports from '../pages/admin/Reports';
+import SmsLogs from '../pages/admin/SmsLogs';
+import StaffReports from '../pages/staff/Reports';
 
 export default function AppRoutes() {
   return (
@@ -43,8 +46,8 @@ export default function AppRoutes() {
             <Route path="classes" element={<Classes />} />
             <Route path="assignments" element={<Assignments />} />
             <Route path="attendance" element={<AdminAttendance />} />
-            <Route path="reports" element={<div className="bg-white p-6 rounded-2xl border border-slate-200"><h2 className="text-lg font-bold text-slate-800">Reports Center</h2><p className="text-sm text-slate-400 mt-1">Analytical spreadsheets and visual charts coming in Phase 4.</p></div>} />
-            <Route path="sms-logs" element={<div className="bg-white p-6 rounded-2xl border border-slate-200"><h2 className="text-lg font-bold text-slate-800">SMS Outbox Logs</h2><p className="text-sm text-slate-400 mt-1">Parent notification status registry coming in Phase 4.</p></div>} />
+            <Route path="reports" element={<AdminReports />} />
+            <Route path="sms-logs" element={<SmsLogs />} />
           </Route>
         </Route>
       </Route>
@@ -59,7 +62,7 @@ export default function AppRoutes() {
             <Route path="attendance/:classId" element={<StaffAttendance />} />
             <Route path="attendance" element={<Navigate to="/staff/dashboard" replace />} />
             <Route path="history" element={<StaffHistory />} />
-            <Route path="reports" element={<div className="bg-white p-6 rounded-2xl border border-slate-200"><h2 className="text-lg font-bold text-slate-800">Faculty Reports</h2><p className="text-sm text-slate-400 mt-1">Classroom metric summaries coming in Phase 4.</p></div>} />
+            <Route path="reports" element={<StaffReports />} />
           </Route>
         </Route>
       </Route>
@@ -73,3 +76,4 @@ export default function AppRoutes() {
     </Routes>
   );
 }
+

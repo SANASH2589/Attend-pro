@@ -25,12 +25,16 @@ const studentsRouter = require('./routes/students');
 const classesRouter = require('./routes/classes');
 const assignmentsRouter = require('./routes/assignments');
 const attendanceRouter = require('./routes/attendance');
+const smsRouter = require('./routes/sms');
+const reportsRouter = require('./routes/reports');
 
 app.use('/api/v1/staff', staffRouter);
 app.use('/api/v1/students', studentsRouter);
 app.use('/api/v1/classes', classesRouter);
 app.use('/api/v1/assignments', assignmentsRouter);
 app.use('/api/v1/attendance', attendanceRouter);
+app.use('/api/v1/sms', smsRouter);
+app.use('/api/v1/reports', reportsRouter);
 
 // Health Check Endpoint
 app.get('/health', (req, res) => {
