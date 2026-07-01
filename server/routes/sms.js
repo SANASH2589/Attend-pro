@@ -4,19 +4,6 @@ const { supabaseAdmin } = require('../lib/supabase');
 const authMiddleware = require('../middleware/auth');
 const { sendAbsenteeNotifications, retrySmsForSession, getSmsLogsForSession } = require('../services/smsService');
 
-// ============================================================
-// INTERNAL SERVICE KEY AUTH (for Edge Function cron calls)
-// ============================================================
-const internalAuth = (req, res, next) => {
-  const serviceKey = req.headers['x-service-key'];
-  const expectedKey = process.env.INTERNAL_SERVICE_KEY;
-
-  if (!expectedKey || serviceKey !== expectedKey) {
-    return res.status(401).json({ message: 'Invalid or missing service key.' });
-  }
-  next();
-};
-
 // Role checks
 const superAdminOnly = (req, res, next) => {
   if (req.user.role !== 'super_admin') {
@@ -25,20 +12,6 @@ const superAdminOnly = (req, res, next) => {
   next();
 };
 
-// ============================================================
-// INTERNAL ROUTE — Used by Edge Function cron
-// POST /api/v1/sms/session/:sessionId/notify
-// ============================================================
-router.post('/session/:sessionId/notify', internalAuth, async (req, res) => {
-  try {
-    const { sessionId } = req.params;
-    const result = await sendAbsenteeNotifications(sessionId);
-    return res.json(result);
-  } catch (err) {
-    console.error('[SMS Route] Notify error:', err.message);
-    return res.status(500).json({ message: 'Failed to process SMS notifications.' });
-  }
-});
 
 // ============================================================
 // ALL ROUTES BELOW REQUIRE JWT AUTH
@@ -121,6 +94,46 @@ router.post('/retry/:sessionId', superAdminOnly, async (req, res) => {
   } catch (err) {
     console.error('[SMS Route] Retry error:', err.message);
     return res.status(500).json({ message: 'Failed to retry SMS notifications.' });
+  }
+});
+
+// ============================================================
+// GET /api/super-admin/sms/stats
+// Admin only — SMS statistics
+// ============================================================
+router.get('/stats', superAdminOnly, async (req, res) => {
+  try {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    const weekAgo = d.toISOString().split('T')[0];
+
+    const { data: todayLogs, error: todayErr } = await supabaseAdmin
+      .from('sms_logs')
+      .select('status')
+      .gte('sent_at', `${todayStr}T00:00:00`);
+
+    if (todayErr) throw todayErr;
+
+    const { data: weekLogs, error: weekErr } = await supabaseAdmin
+      .from('sms_logs')
+      .select('status')
+      .gte('sent_at', `${weekAgo}T00:00:00`);
+
+    if (weekErr) throw weekErr;
+
+    const sentToday = (todayLogs || []).filter(l => l.status === 'sent' || l.status === 'delivered').length;
+    const failedToday = (todayLogs || []).filter(l => l.status === 'failed').length;
+    const totalWeek = (weekLogs || []).length;
+
+    return res.json({
+      sentToday,
+      failedToday,
+      totalWeek
+    });
+  } catch (err) {
+    console.error('[SMS Route] Stats fetch error:', err.message);
+    return res.status(500).json({ message: 'Failed to retrieve SMS stats.' });
   }
 });
 

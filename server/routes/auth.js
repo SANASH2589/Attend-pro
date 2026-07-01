@@ -40,33 +40,35 @@ router.post('/login', async (req, res) => {
 
     // Retrieve database profile details (bypass RLS using admin client)
     const { data: userProfile, error: profileError } = await supabaseAdmin
-      .from('users')
-      .select('id, email, role, full_name, is_active')
+      .from('profiles')
+      .select('id, email, role, full_name, status')
       .eq('id', userId)
       .single();
 
     if (profileError || !userProfile) {
-      // User is authenticated in Supabase auth, but missing in our custom users table
+      // User is authenticated in Supabase auth, but missing in our profiles table
       return res.status(401).json({
         message: 'Your account is not registered in the Attend-Pro system.'
       });
     }
 
-    if (!userProfile.is_active) {
+    if (userProfile.status !== 'ACTIVE') {
       return res.status(403).json({
         message: 'Your account has been deactivated. Please contact administration.'
       });
     }
 
+    const normalizedRole = userProfile.role.toLowerCase();
+
     // Return the session token, user details, and user role
     return res.json({
       token: authData.session.access_token,
-      role: userProfile.role,
+      role: normalizedRole,
       user: {
         id: userProfile.id,
         email: userProfile.email,
         name: userProfile.full_name || userProfile.email.split('@')[0],
-        role: userProfile.role
+        role: normalizedRole
       }
     });
   } catch (err) {

@@ -266,8 +266,9 @@ router.get('/students/:classId', staffOnly, async (req, res) => {
 });
 
 /**
- * POST /api/v1/attendance/submit
+ * POST /submit
  * Atomically submits attendance sheet for a class section.
+ * Post-submission flow: save → lock → SMS (absent only) → recalculate stats.
  */
 router.post('/submit', staffOnly, async (req, res) => {
   try {
@@ -323,10 +324,11 @@ router.post('/submit', staffOnly, async (req, res) => {
       return res.status(400).json({ message: `Attendance window is not currently open. Status is: ${sessionState.status}` });
     }
 
-    // 3. Fetch assigned students list
+    // 3. Fetch assigned students list — filtered by class_id
     const { data: studentAssigns, error: studErr } = await supabaseAdmin
       .from('student_class_assignments')
-      .select('student:students(id, is_active)');
+      .select('student:students(id, is_active)')
+      .eq('class_id', class_id);
 
     if (studErr) throw studErr;
 
@@ -337,7 +339,7 @@ router.post('/submit', staffOnly, async (req, res) => {
 
     const totalStudents = activeStudentIds.length;
 
-    // 4. Create attendance session
+    // 4. Create attendance session — immediately locked to prevent edits
     const { data: session, error: sessErr } = await supabaseAdmin
       .from('attendance_sessions')
       .insert({
@@ -345,7 +347,8 @@ router.post('/submit', staffOnly, async (req, res) => {
         staff_id: req.user.id,
         session_date: todayStr,
         session_type,
-        is_locked: false,
+        is_locked: true,
+        locked_at: now.toISOString(),
         total_students: totalStudents,
         total_absent: absent_student_ids.length,
         submitted_at: now.toISOString()
@@ -379,11 +382,28 @@ router.post('/submit', staffOnly, async (req, res) => {
       }
     }
 
+    // 6. Post-submission automation (fire-and-forget)
+    // Step A: Session is already saved and locked (is_locked: true above)
+    // Step C: Send SMS only to parents of absent students
+    sendAbsenteeNotifications(session.id).catch(smsErr => {
+      console.error('[Post-Submit SMS] Notification error:', smsErr.message);
+    });
+
+    // Step E: Recalculate attendance statistics
+    try {
+      const classStats = await getClassAttendanceStats(class_id);
+      // Stats are calculated — consumers will read fresh data on next request
+      console.log(`[Post-Submit Stats] Class ${class_id} stats recalculated.`);
+    } catch (statsErr) {
+      console.error('[Post-Submit Stats] Recalculation error:', statsErr.message);
+    }
+
     return res.status(201).json({
       session_id: session.id,
       total_students: totalStudents,
       total_absent: absent_student_ids.length,
-      submitted_at: session.submitted_at
+      submitted_at: session.submitted_at,
+      is_locked: true
     });
   } catch (err) {
     console.error('Error submitting attendance sheet:', err.message);

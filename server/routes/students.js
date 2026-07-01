@@ -397,4 +397,159 @@ router.post('/import', upload.single('file'), async (req, res) => {
   }
 });
 
+/**
+ * POST /api/super-admin/students/import-preview
+ * Parses and validates CSV/Excel roster without writing to DB, returning a preview.
+ */
+router.post('/import-preview', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded.' });
+    }
+
+    let parsedRows = [];
+    const extension = req.file.originalname.split('.').pop().toLowerCase();
+
+    if (extension === 'csv') {
+      try {
+        parsedRows = parse(req.file.buffer.toString('utf-8'), {
+          columns: true,
+          skip_empty_lines: true,
+          trim: true
+        });
+      } catch (parseErr) {
+        return res.status(400).json({ message: 'Failed to parse CSV file. Ensure it is a valid format.' });
+      }
+    } else if (['xls', 'xlsx'].includes(extension)) {
+      try {
+        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        parsedRows = xlsx.utils.sheet_to_json(worksheet);
+      } catch (parseErr) {
+        return res.status(400).json({ message: 'Failed to parse Excel file.' });
+      }
+    } else {
+      return res.status(400).json({ message: 'Unsupported file type. Only CSV and Excel (.xls/.xlsx) files are supported.' });
+    }
+
+    if (parsedRows.length === 0) {
+      return res.status(400).json({ message: 'The uploaded file does not contain any data.' });
+    }
+
+    const normalizedRows = parsedRows.map((row, idx) => ({
+      rawIndex: idx + 2,
+      ...normalizeKeys(row)
+    }));
+
+    const errors = [];
+    const validRows = [];
+    const rollNumbersSeenInImport = new Set();
+
+    const { data: dbStudents, error: dbErr } = await supabaseAdmin
+      .from('students')
+      .select('roll_number');
+
+    if (dbErr) throw dbErr;
+    const dbRollNumbers = new Set((dbStudents || []).map(s => s.roll_number));
+
+    for (const row of normalizedRows) {
+      const rowErrors = [];
+
+      if (!row.roll_number) {
+        rowErrors.push('Roll Number is missing.');
+      } else {
+        if (rollNumbersSeenInImport.has(row.roll_number)) {
+          rowErrors.push(`Duplicate roll number "${row.roll_number}" within the uploaded file.`);
+        }
+        if (dbRollNumbers.has(row.roll_number)) {
+          rowErrors.push(`Roll number "${row.roll_number}" is already registered in the system.`);
+        }
+        rollNumbersSeenInImport.add(row.roll_number);
+      }
+
+      if (!row.full_name) {
+        rowErrors.push('Student Name is missing.');
+      }
+
+      if (!row.parent_phone) {
+        rowErrors.push('Parent Phone Number is missing.');
+      } else if (row.parent_phone.length < 5) {
+        rowErrors.push('Parent Phone Number is too short.');
+      }
+
+      if (row.email) {
+        const emailSchema = z.string().email();
+        const emailCheck = emailSchema.safeParse(row.email);
+        if (!emailCheck.success) {
+          rowErrors.push(`Invalid email format: "${row.email}".`);
+        }
+      }
+
+      if (rowErrors.length > 0) {
+        errors.push({
+          row: row.rawIndex,
+          studentName: row.full_name || 'Unknown',
+          rollNumber: row.roll_number || 'N/A',
+          reasons: rowErrors
+        });
+      } else {
+        validRows.push({
+          roll_number: row.roll_number,
+          full_name: row.full_name,
+          parent_phone: row.parent_phone,
+          email: row.email || null,
+          is_active: true
+        });
+      }
+    }
+
+    const summary = {
+      total: normalizedRows.length,
+      valid: validRows.length,
+      invalid: errors.length
+    };
+
+    return res.json({
+      success: errors.length === 0,
+      summary,
+      errors,
+      previewRows: validRows
+    });
+  } catch (err) {
+    console.error('Error during import preview:', err.message);
+    return res.status(500).json({ message: 'Internal server error during student import preview.' });
+  }
+});
+
+/**
+ * POST /api/super-admin/students/import-save
+ * Inserts the validated preview students list into the database.
+ */
+router.post('/import-save', async (req, res) => {
+  try {
+    const { students } = req.body;
+    if (!students || !Array.isArray(students) || students.length === 0) {
+      return res.status(400).json({ message: 'No student data to save.' });
+    }
+
+    const { data: insertedStudents, error: insertError } = await supabaseAdmin
+      .from('students')
+      .insert(students)
+      .select();
+
+    if (insertError) {
+      throw insertError;
+    }
+
+    return res.json({
+      success: true,
+      importedCount: insertedStudents.length
+    });
+  } catch (err) {
+    console.error('Error saving imported students:', err.message);
+    return res.status(500).json({ message: 'Internal server error during saving imported students.' });
+  }
+});
+
 module.exports = router;

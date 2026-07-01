@@ -1,57 +1,73 @@
-const jwt = require('jsonwebtoken');
-const { supabaseAdmin } = require('../lib/supabase');
+const { createClient } = require('@supabase/supabase-js');
 
-/**
- * Middleware to verify Supabase JWT, authenticate the user,
- * and attach user profile and role details to the request.
- */
-module.exports = async function authMiddleware(req, res, next) {
+// Service-role client — only used server-side, never expose this key to the client
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL || '',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+);
+
+async function authMiddleware(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'Authorization token required' });
+      return res.status(401).json({ message: 'Missing or invalid Authorization header' });
     }
 
     const token = authHeader.split(' ')[1];
-    if (!token) {
-      return res.status(401).json({ message: 'Malformed authorization header' });
-    }
 
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-supabase-jwt-secret-or-custom-secret');
-    } catch (err) {
-      return res.status(401).json({ message: 'Invalid or expired session token' });
-    }
-
-    const userId = decoded.sub; // Supabase uses the 'sub' claim for the auth user's UUID
-
-    // Retrieve user details from our custom users table using the admin client (RLS bypass)
-    const { data: user, error } = await supabaseAdmin
-      .from('users')
-      .select('id, email, role, full_name, is_active')
-      .eq('id', userId)
-      .single();
+    // Ask Supabase directly whether this token is valid —
+    // no need for JWT_SECRET or manual verification at all
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
 
     if (error || !user) {
-      return res.status(401).json({ message: 'User profile not found in Attend-Pro registry' });
+      return res.status(401).json({ message: 'Invalid or expired token' });
     }
 
-    if (!user.is_active) {
-      return res.status(403).json({ message: 'This user account is deactivated' });
+    // Fetch role + profile info from profiles table
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email, role, full_name, status')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      return res.status(401).json({ message: 'User profile not found' });
     }
 
-    // Attach user profile information to request object
+    if (profile.status !== 'ACTIVE') {
+      return res.status(403).json({ message: 'Account is deactivated' });
+    }
+
+    // Attach to request — normalize role to lowercase for downstream guards
     req.user = {
-      id: user.id,
-      email: user.email,
-      role: user.role, // 'super_admin' or 'staff'
-      full_name: user.full_name
+      id: profile.id,
+      email: profile.email,
+      full_name: profile.full_name,
+      role: profile.role.toLowerCase(),
+      is_active: profile.status === 'ACTIVE'
     };
 
     next();
   } catch (err) {
     console.error('Auth middleware error:', err.message);
-    res.status(500).json({ message: 'Internal server error during authentication verification' });
+    return res.status(500).json({ message: 'Authentication check failed' });
   }
-};
+}
+
+// Role guard — use after authMiddleware
+function requireRole(...allowedRoles) {
+  return (req, res, next) => {
+    if (!req.user || !allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ message: 'Insufficient permissions' });
+    }
+    next();
+  };
+}
+
+// Support both function-direct import and object destructuring
+authMiddleware.authMiddleware = authMiddleware;
+authMiddleware.requireRole = requireRole;
+
+module.exports = authMiddleware;
+

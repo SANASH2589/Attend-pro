@@ -154,10 +154,10 @@ router.get('/staff/:class_id', async (req, res) => {
 
     // 1. Fetch all active staff
     const { data: allStaff, error: staffErr } = await supabaseAdmin
-      .from('users')
-      .select('id, email, full_name, phone, is_active')
-      .eq('role', 'staff')
-      .eq('is_active', true)
+      .from('profiles')
+      .select('id, email, full_name, phone, status')
+      .eq('role', 'STAFF')
+      .eq('status', 'ACTIVE')
       .order('full_name', { ascending: true });
 
     if (staffErr) throw staffErr;
