@@ -29,7 +29,6 @@ const staffRouter = require('./routes/staff');
 const studentsRouter = require('./routes/students');
 const classesRouter = require('./routes/classes');
 const assignmentsRouter = require('./routes/assignments');
-const smsRouter = require('./routes/sms');
 const reportsRouter = require('./routes/reports');
 const dashboardRouter = require('./routes/dashboard');
 
@@ -37,7 +36,6 @@ app.use('/api/super-admin/staff', staffRouter);
 app.use('/api/super-admin/students', studentsRouter);
 app.use('/api/super-admin/classes', classesRouter);
 app.use('/api/super-admin/assignments', assignmentsRouter);
-app.use('/api/super-admin/sms', smsRouter);
 app.use('/api/super-admin/reports', reportsRouter);
 app.use('/api/super-admin/dashboard', dashboardRouter);
 

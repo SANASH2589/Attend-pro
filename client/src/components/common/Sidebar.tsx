@@ -7,7 +7,6 @@ import {
   BookOpen, 
   ClipboardCheck, 
   FileSpreadsheet, 
-  MessageSquare, 
   History, 
   Link2,
   LogOut 
@@ -60,11 +59,6 @@ export default function Sidebar({ onClose, className = "" }: SidebarProps) {
           label: "Reports",
           path: "/super-admin/reports",
           icon: FileSpreadsheet
-        },
-        {
-          label: "SMS Logs",
-          path: "/super-admin/sms-logs",
-          icon: MessageSquare
         }
       ];
     } else if (role === 'staff') {

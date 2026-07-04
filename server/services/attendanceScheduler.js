@@ -1,6 +1,5 @@
 const cron = require('node-cron');
 const { supabaseAdmin } = require('../lib/supabase');
-const { sendAbsenteeNotifications } = require('./smsService');
 
 /**
  * Helper to convert "HH:MM:SS" or "HH:MM" to minutes
@@ -83,19 +82,6 @@ async function runAutoLock() {
                 if (auditErr) {
                   console.error(`[Scheduler] Failed to insert audit log for session ${morningSession.id}:`, auditErr.message);
                 }
-
-                // Immediately trigger SMS notifications (non-blocking)
-                sendAbsenteeNotifications(morningSession.id)
-                  .then((smsResult) => {
-                    if (smsResult && smsResult.failed === 0) {
-                      console.log(`[Scheduler] SMS sent successfully for session ${morningSession.id}.`);
-                    } else if (smsResult) {
-                      console.log(`[Scheduler] SMS finished with some failures for session ${morningSession.id} (${smsResult.sent} sent, ${smsResult.failed} failed).`);
-                    }
-                  })
-                  .catch((smsErr) => {
-                    console.error(`[Scheduler] SMS failed for session ${morningSession.id}:`, smsErr.message);
-                  });
               }
             }
           }
@@ -135,19 +121,6 @@ async function runAutoLock() {
                 if (auditErr) {
                   console.error(`[Scheduler] Failed to insert audit log for session ${eveningSession.id}:`, auditErr.message);
                 }
-
-                // Immediately trigger SMS notifications (non-blocking)
-                sendAbsenteeNotifications(eveningSession.id)
-                  .then((smsResult) => {
-                    if (smsResult && smsResult.failed === 0) {
-                      console.log(`[Scheduler] SMS sent successfully for session ${eveningSession.id}.`);
-                    } else if (smsResult) {
-                      console.log(`[Scheduler] SMS finished with some failures for session ${eveningSession.id} (${smsResult.sent} sent, ${smsResult.failed} failed).`);
-                    }
-                  })
-                  .catch((smsErr) => {
-                    console.error(`[Scheduler] SMS failed for session ${eveningSession.id}:`, smsErr.message);
-                  });
               }
             }
           }

@@ -471,7 +471,7 @@ export default function Attendance() {
           <div className="bg-amber-50 border border-amber-100 p-3.5 rounded-xl flex gap-2.5 text-xs text-amber-800 select-none">
             <AlertTriangle className="w-4.5 h-4.5 text-amber-500 shrink-0 mt-0.5" />
             <div className="leading-relaxed">
-              <span className="font-bold">Important Notice:</span> Once submitted, this session will be locked and automated SMS notifications will be dispatched to the parents of absent students.
+              <span className="font-bold">Important Notice:</span> Once submitted, this session will be locked and attendance statistics will be finalized.
             </div>
           </div>
 

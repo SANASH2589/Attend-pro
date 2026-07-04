@@ -23,7 +23,6 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
     if (pathname.includes('/super-admin/classes')) return 'Classes & Batches';
     if (pathname.includes('/super-admin/assignments')) return 'Assignments';
     if (pathname.includes('/super-admin/reports')) return 'Reports';
-    if (pathname.includes('/super-admin/sms-logs')) return 'SMS Logs';
     
     // Staff pages
     if (pathname.includes('/staff/dashboard')) return 'My Dashboard';

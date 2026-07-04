@@ -3,7 +3,6 @@ const router = express.Router();
 const { supabaseAdmin } = require('../lib/supabase');
 const authMiddleware = require('../middleware/auth');
 const { getStudentAttendanceStats, getClassAttendanceStats } = require('../lib/attendanceStats');
-const { sendAbsenteeNotifications } = require('../services/smsService');
 
 // Helper to convert time "HH:MM" to minutes from midnight
 function timeToMinutes(t) {
@@ -268,7 +267,7 @@ router.get('/students/:classId', staffOnly, async (req, res) => {
 /**
  * POST /submit
  * Atomically submits attendance sheet for a class section.
- * Post-submission flow: save → lock → SMS (absent only) → recalculate stats.
+ * Post-submission flow: save → lock → recalculate stats.
  */
 router.post('/submit', staffOnly, async (req, res) => {
   try {
@@ -382,13 +381,6 @@ router.post('/submit', staffOnly, async (req, res) => {
       }
     }
 
-    // 6. Post-submission automation (fire-and-forget)
-    // Step A: Session is already saved and locked (is_locked: true above)
-    // Step C: Send SMS only to parents of absent students
-    sendAbsenteeNotifications(session.id).catch(smsErr => {
-      console.error('[Post-Submit SMS] Notification error:', smsErr.message);
-    });
-
     // Step E: Recalculate attendance statistics
     try {
       const classStats = await getClassAttendanceStats(class_id);
@@ -436,7 +428,7 @@ router.get('/all-sessions', superAdminOnly, async (req, res) => {
         classes (
           name
         ),
-        users (
+        profiles (
           full_name
         )
       `, { count: 'exact' });
@@ -457,8 +449,17 @@ router.get('/all-sessions', superAdminOnly, async (req, res) => {
     const { data: sessions, count, error } = await query;
     if (error) throw error;
 
+    // Map profiles back to users for frontend compatibility
+    const mappedSessions = (sessions || []).map(s => {
+      const { profiles, ...rest } = s;
+      return {
+        ...rest,
+        users: profiles
+      };
+    });
+
     return res.json({
-      sessions: sessions || [],
+      sessions: mappedSessions,
       total: count || 0,
       page: pageNum,
       limit: limitNum
@@ -480,7 +481,7 @@ router.get('/session/:sessionId', async (req, res) => {
     // 1. Fetch session structure
     const { data: session, error: sessErr } = await supabaseAdmin
       .from('attendance_sessions')
-      .select('*, classes(name), users(full_name)')
+      .select('*, classes(name), profiles(full_name)')
       .eq('id', sessionId)
       .single();
 
@@ -491,11 +492,11 @@ router.get('/session/:sessionId', async (req, res) => {
     // Role gate checks: staff can only view details if assigned to class
     if (req.user.role === 'staff') {
       const { data: assign } = await supabaseAdmin
-        .from('staff_class_assignments')
-        .select('id')
-        .eq('staff_id', req.user.id)
-        .eq('class_id', session.class_id)
-        .maybeSingle();
+         .from('staff_class_assignments')
+         .select('id')
+         .eq('staff_id', req.user.id)
+         .eq('class_id', session.class_id)
+         .maybeSingle();
 
       if (!assign) {
         return res.status(403).json({ message: 'Access denied to this session log.' });
@@ -509,6 +510,12 @@ router.get('/session/:sessionId', async (req, res) => {
       .eq('session_id', sessionId);
 
     if (recsErr) throw recsErr;
+
+    // Map profiles back to users for frontend compatibility
+    if (session) {
+      session.users = session.profiles;
+      delete session.profiles;
+    }
 
     return res.json({
       session,
@@ -539,11 +546,6 @@ router.put('/session/:sessionId/lock', superAdminOnly, async (req, res) => {
       .single();
 
     if (error) throw error;
-
-    // Fire-and-forget: trigger SMS notifications for absent students
-    sendAbsenteeNotifications(sessionId).catch(smsErr => {
-      console.error('[SMS] Background notification error on lock:', smsErr.message);
-    });
 
     return res.json(updated);
   } catch (err) {

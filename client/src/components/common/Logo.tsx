@@ -1,5 +1,5 @@
 import React from 'react';
-import logoImg from '../../assets/logo.svg';
+import logoImg from '../../assets/branding/logo.png';
 import clsx from 'clsx';
 
 export interface LogoProps {

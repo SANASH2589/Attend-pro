@@ -23,7 +23,6 @@ import Students from '../pages/admin/Students';
 import Classes from '../pages/admin/Classes';
 import Assignments from '../pages/admin/Assignments';
 import AdminReports from '../pages/admin/Reports';
-import SmsLogs from '../pages/admin/SmsLogs';
 
 // Staff Pages
 import StaffDashboard from '../pages/staff/Dashboard';
@@ -52,7 +51,7 @@ export default function AppRoutes() {
       {/* ============================================================ */}
       {/* PROTECTED SUPER ADMIN ROUTES — /super-admin/*                */}
       {/* Super Admin can ONLY access: Staff, Classes, Students,       */}
-      {/* Assignments, Reports, SMS Logs, Dashboard                    */}
+      {/* Assignments, Reports, Dashboard                             */}
       {/* ============================================================ */}
       <Route element={<ProtectedRoute />}>
         <Route element={<RoleRoute allowedRoles={['super_admin']} />}>
@@ -65,7 +64,6 @@ export default function AppRoutes() {
             <Route path="classes" element={<Classes />} />
             <Route path="assignments" element={<Assignments />} />
             <Route path="reports" element={<AdminReports />} />
-            <Route path="sms-logs" element={<SmsLogs />} />
 
             {/* NO attendance page for super admin */}
           </Route>

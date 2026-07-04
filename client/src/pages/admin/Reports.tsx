@@ -121,8 +121,7 @@ function OverviewTab() {
 
       {!loading && report && (
         <>
-          {/* Metric cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <StatCard
               title="Avg Attendance"
               value={report.overall.avg_attendance_pct !== null ? `${report.overall.avg_attendance_pct}%` : '—'}
@@ -131,13 +130,6 @@ function OverviewTab() {
               trend={{ type: report.overall.avg_attendance_pct >= 75 ? 'success' : report.overall.avg_attendance_pct >= 50 ? 'neutral' : 'danger', text: report.overall.avg_attendance_pct >= 75 ? 'Healthy' : 'Needs attention' }}
             />
             <StatCard title="Total Sessions" value={String(report.overall.total_sessions)} icon={BarChart3} description="In selected period" />
-            <StatCard title="SMS Sent" value={String(report.overall.total_sms_sent)} icon={FileSpreadsheet} description="Notifications dispatched" />
-            <StatCard
-              title="SMS Failed"
-              value={String(report.overall.total_sms_failed)}
-              icon={AlertTriangle}
-              description="Delivery failures"
-            />
           </div>
 
           {/* By class table */}

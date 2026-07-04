@@ -355,7 +355,7 @@ async function getAdminOverviewReport(dateFrom, dateTo) {
   // Fetch sessions in range
   let sessionQuery = supabaseAdmin
     .from('attendance_sessions')
-    .select('id, class_id, staff_id, session_date, session_type, total_students, total_absent, classes(name), users(full_name)');
+    .select('id, class_id, staff_id, session_date, session_type, total_students, total_absent, classes(name), profiles(full_name)');
 
   if (dateFrom) sessionQuery = sessionQuery.gte('session_date', dateFrom);
   if (dateTo) sessionQuery = sessionQuery.lte('session_date', dateTo);
@@ -363,22 +363,10 @@ async function getAdminOverviewReport(dateFrom, dateTo) {
   const { data: sessions, error: sessErr } = await sessionQuery;
   if (sessErr) throw sessErr;
 
-  // SMS stats
-  let smsQuery = supabaseAdmin
-    .from('sms_logs')
-    .select('status, sent_at');
-
-  if (dateFrom) smsQuery = smsQuery.gte('sent_at', `${dateFrom}T00:00:00`);
-  if (dateTo) smsQuery = smsQuery.lte('sent_at', `${dateTo}T23:59:59`);
-
-  const { data: smsLogs } = await smsQuery;
-  const totalSmsSent = (smsLogs || []).filter(l => l.status === 'sent' || l.status === 'delivered').length;
-  const totalSmsFailed = (smsLogs || []).filter(l => l.status === 'failed').length;
-
   if (!sessions || sessions.length === 0) {
     return {
       period: { from: dateFrom, to: dateTo },
-      overall: { total_sessions: 0, avg_attendance_pct: null, total_sms_sent: totalSmsSent, total_sms_failed: totalSmsFailed },
+      overall: { total_sessions: 0, avg_attendance_pct: null },
       by_class: [],
       by_staff: [],
       low_attendance_students: []
@@ -442,7 +430,7 @@ async function getAdminOverviewReport(dateFrom, dateTo) {
     if (!staffMap[s.staff_id]) {
       staffMap[s.staff_id] = {
         staff_id: s.staff_id,
-        staff_name: s.users?.full_name || 'Unknown',
+        staff_name: s.profiles?.full_name || 'Unknown',
         sessions_taken: 0,
         total_student_slots: 0,
         total_present: 0
@@ -519,9 +507,7 @@ async function getAdminOverviewReport(dateFrom, dateTo) {
     period: { from: dateFrom, to: dateTo },
     overall: {
       total_sessions: sessions.length,
-      avg_attendance_pct: overallPct,
-      total_sms_sent: totalSmsSent,
-      total_sms_failed: totalSmsFailed
+      avg_attendance_pct: overallPct
     },
     by_class: byClass,
     by_staff: byStaff,
