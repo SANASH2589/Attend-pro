@@ -1,9 +1,29 @@
-const { supabaseAdmin } = require('./supabase');
+import { supabaseAdmin } from './supabase';
+import type {
+  StudentAttendanceStats,
+  ClassAttendanceStats,
+  ClassSessionStat,
+  FullStudentReport,
+  SessionDetail,
+  FullClassReport,
+  DailyStat,
+  StudentStat,
+  DayInfo,
+  AdminOverviewReport,
+  ClassOverviewItem,
+  StaffOverviewItem,
+  LowAttendanceStudent
+} from '../types';
 
 /**
  * Calculates attendance statistics for a single student.
  */
-async function getStudentAttendanceStats(studentId, classId, dateFrom, dateTo) {
+async function getStudentAttendanceStats(
+  studentId: string,
+  classId?: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<StudentAttendanceStats> {
   // 1. Fetch relevant attendance sessions
   let sessionQuery = supabaseAdmin
     .from('attendance_sessions')
@@ -22,7 +42,7 @@ async function getStudentAttendanceStats(studentId, classId, dateFrom, dateTo) {
   const { data: sessions, error: sessionErr } = await sessionQuery;
   if (sessionErr) throw sessionErr;
 
-  const sessionIds = (sessions || []).map(s => s.id);
+  const sessionIds = (sessions || []).map((s: { id: string }) => s.id);
   if (sessionIds.length === 0) {
     return {
       total_sessions: 0,
@@ -41,8 +61,8 @@ async function getStudentAttendanceStats(studentId, classId, dateFrom, dateTo) {
 
   if (recordErr) throw recordErr;
 
-  const total = records.length;
-  const present = records.filter(r => r.status === 'present').length;
+  const total = records!.length;
+  const present = records!.filter((r: { status: string }) => r.status === 'present').length;
   const absent = total - present;
   const percentage = total > 0 ? parseFloat(((present / total) * 100).toFixed(2)) : 0;
 
@@ -57,7 +77,11 @@ async function getStudentAttendanceStats(studentId, classId, dateFrom, dateTo) {
 /**
  * Calculates attendance statistics for a class section.
  */
-async function getClassAttendanceStats(classId, dateFrom, dateTo) {
+async function getClassAttendanceStats(
+  classId: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<ClassAttendanceStats> {
   let sessionQuery = supabaseAdmin
     .from('attendance_sessions')
     .select('id, session_date, session_type, total_students, total_absent')
@@ -76,7 +100,13 @@ async function getClassAttendanceStats(classId, dateFrom, dateTo) {
   let overallTotal = 0;
   let overallAbsent = 0;
 
-  const sessionStats = (sessions || []).map(s => {
+  const sessionStats: ClassSessionStat[] = (sessions || []).map((s: {
+    id: string;
+    session_date: string;
+    session_type: string;
+    total_students: number;
+    total_absent: number;
+  }) => {
     const total = s.total_students || 0;
     const absent = s.total_absent || 0;
     const present = Math.max(0, total - absent);
@@ -101,7 +131,7 @@ async function getClassAttendanceStats(classId, dateFrom, dateTo) {
 
   return {
     overall: {
-      total_sessions: sessions.length,
+      total_sessions: sessions!.length,
       total_students_registered: overallTotal,
       present_students_registered: overallPresent,
       absent_students_registered: overallAbsent,
@@ -114,7 +144,12 @@ async function getClassAttendanceStats(classId, dateFrom, dateTo) {
 /**
  * Full student report with session-level detail, consecutive absence tracking.
  */
-async function getFullStudentReport(studentId, classId, dateFrom, dateTo) {
+async function getFullStudentReport(
+  studentId: string,
+  classId?: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<FullStudentReport> {
   // Fetch student info
   const { data: student, error: studErr } = await supabaseAdmin
     .from('students')
@@ -125,7 +160,7 @@ async function getFullStudentReport(studentId, classId, dateFrom, dateTo) {
   if (studErr || !student) throw new Error('Student not found');
 
   // Fetch class info
-  let classInfo = null;
+  let classInfo: { id: string; name: string } | null = null;
   if (classId) {
     const { data: cls } = await supabaseAdmin
       .from('classes')
@@ -158,7 +193,7 @@ async function getFullStudentReport(studentId, classId, dateFrom, dateTo) {
     };
   }
 
-  const sessionIds = sessions.map(s => s.id);
+  const sessionIds = sessions.map((s: { id: string }) => s.id);
 
   // Fetch student's records
   const { data: records, error: recErr } = await supabaseAdmin
@@ -169,17 +204,17 @@ async function getFullStudentReport(studentId, classId, dateFrom, dateTo) {
 
   if (recErr) throw recErr;
 
-  const recordMap = {};
-  (records || []).forEach(r => { recordMap[r.session_id] = r.status; });
+  const recordMap: Record<string, string> = {};
+  (records || []).forEach((r: { session_id: string; status: string }) => { recordMap[r.session_id] = r.status; });
 
   // Build session detail list and compute stats
   let present = 0;
   let absent = 0;
   let consecutiveAbsent = 0;
   let maxConsecutiveAbsent = 0;
-  let lastAbsentDate = null;
+  let lastAbsentDate: string | null = null;
 
-  const sessionDetails = sessions.map(s => {
+  const sessionDetails: SessionDetail[] = (sessions as any[]).map((s: any) => {
     const status = recordMap[s.id] || null;
     if (status === 'present') {
       present++;
@@ -224,7 +259,11 @@ async function getFullStudentReport(studentId, classId, dateFrom, dateTo) {
 /**
  * Full class report with per-student breakdown and daily stats.
  */
-async function getFullClassReport(classId, dateFrom, dateTo) {
+async function getFullClassReport(
+  classId: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<FullClassReport> {
   // Fetch class info
   const { data: classInfo, error: clsErr } = await supabaseAdmin
     .from('classes')
@@ -258,9 +297,15 @@ async function getFullClassReport(classId, dateFrom, dateTo) {
   }
 
   // Build daily stats
-  let bestDay = null;
-  let worstDay = null;
-  const daily = sessions.map(s => {
+  let bestDay: DayInfo | null = null;
+  let worstDay: DayInfo | null = null;
+  const daily: DailyStat[] = sessions.map((s: {
+    id: string;
+    session_date: string;
+    session_type: string;
+    total_students: number;
+    total_absent: number;
+  }) => {
     const total = s.total_students || 0;
     const absent = s.total_absent || 0;
     const present = Math.max(0, total - absent);
@@ -284,7 +329,7 @@ async function getFullClassReport(classId, dateFrom, dateTo) {
   // Overall average
   let totalStudentSlots = 0;
   let totalPresent = 0;
-  daily.forEach(d => {
+  daily.forEach((d: DailyStat) => {
     totalStudentSlots += d.total;
     totalPresent += d.present;
   });
@@ -298,11 +343,11 @@ async function getFullClassReport(classId, dateFrom, dateTo) {
 
   if (assignErr) throw assignErr;
 
-  const activeStudents = (assignments || [])
-    .map(a => a.student)
-    .filter(s => s && s.is_active);
+  const activeStudents = ((assignments || []) as any[])
+    .map((a: any) => a.student)
+    .filter((s: any): s is { id: string; roll_number: string; full_name: string; is_active: boolean } => s !== null && s.is_active);
 
-  const sessionIds = sessions.map(s => s.id);
+  const sessionIds = sessions.map((s: { id: string }) => s.id);
 
   // Fetch all records for these sessions
   const { data: allRecords, error: recErr } = await supabaseAdmin
@@ -313,12 +358,12 @@ async function getFullClassReport(classId, dateFrom, dateTo) {
   if (recErr) throw recErr;
 
   // Build per-student stats
-  const studentStatsMap = {};
-  activeStudents.forEach(s => {
+  const studentStatsMap: Record<string, { id: string; roll_number: string; full_name: string; total_sessions: number; present: number; absent: number }> = {};
+  activeStudents.forEach((s: { id: string; roll_number: string; full_name: string }) => {
     studentStatsMap[s.id] = { id: s.id, roll_number: s.roll_number, full_name: s.full_name, total_sessions: 0, present: 0, absent: 0 };
   });
 
-  (allRecords || []).forEach(r => {
+  (allRecords || []).forEach((r: { student_id: string; status: string }) => {
     if (studentStatsMap[r.student_id]) {
       studentStatsMap[r.student_id].total_sessions++;
       if (r.status === 'present') {
@@ -329,7 +374,7 @@ async function getFullClassReport(classId, dateFrom, dateTo) {
     }
   });
 
-  const students = Object.values(studentStatsMap).map(s => ({
+  const students: StudentStat[] = Object.values(studentStatsMap).map((s) => ({
     ...s,
     percentage: s.total_sessions > 0 ? parseFloat(((s.present / s.total_sessions) * 100).toFixed(2)) : null
   })).sort((a, b) => (a.percentage ?? 999) - (b.percentage ?? 999)); // ASC, null last
@@ -351,7 +396,10 @@ async function getFullClassReport(classId, dateFrom, dateTo) {
 /**
  * Admin overview report across all classes.
  */
-async function getAdminOverviewReport(dateFrom, dateTo) {
+async function getAdminOverviewReport(
+  dateFrom?: string,
+  dateTo?: string
+): Promise<AdminOverviewReport> {
   // Fetch sessions in range
   let sessionQuery = supabaseAdmin
     .from('attendance_sessions')
@@ -376,7 +424,7 @@ async function getAdminOverviewReport(dateFrom, dateTo) {
   // Overall stats
   let overallTotal = 0;
   let overallPresent = 0;
-  sessions.forEach(s => {
+  sessions.forEach((s: { total_students: number; total_absent: number }) => {
     const t = s.total_students || 0;
     const a = s.total_absent || 0;
     overallTotal += t;
@@ -385,8 +433,16 @@ async function getAdminOverviewReport(dateFrom, dateTo) {
   const overallPct = overallTotal > 0 ? parseFloat(((overallPresent / overallTotal) * 100).toFixed(2)) : null;
 
   // By class
-  const classMap = {};
-  sessions.forEach(s => {
+  const classMap: Record<string, {
+    class_id: string;
+    class_name: string;
+    total_sessions: number;
+    total_student_slots: number;
+    total_present: number;
+    total_students: number;
+    student_ids: Set<string>;
+  }> = {};
+  (sessions as any[]).forEach((s: any) => {
     if (!classMap[s.class_id]) {
       classMap[s.class_id] = {
         class_id: s.class_id,
@@ -394,6 +450,7 @@ async function getAdminOverviewReport(dateFrom, dateTo) {
         total_sessions: 0,
         total_student_slots: 0,
         total_present: 0,
+        total_students: 0,
         student_ids: new Set()
       };
     }
@@ -415,7 +472,7 @@ async function getAdminOverviewReport(dateFrom, dateTo) {
     classMap[cid].total_students = count || 0;
   }
 
-  const byClass = Object.values(classMap).map(c => ({
+  const byClass: ClassOverviewItem[] = Object.values(classMap).map((c) => ({
     class_id: c.class_id,
     class_name: c.class_name,
     total_sessions: c.total_sessions,
@@ -424,8 +481,14 @@ async function getAdminOverviewReport(dateFrom, dateTo) {
   })).sort((a, b) => (a.avg_pct ?? 999) - (b.avg_pct ?? 999));
 
   // By staff
-  const staffMap = {};
-  sessions.forEach(s => {
+  const staffMap: Record<string, {
+    staff_id: string;
+    staff_name: string;
+    sessions_taken: number;
+    total_student_slots: number;
+    total_present: number;
+  }> = {};
+  (sessions as any[]).forEach((s: any) => {
     if (!s.staff_id) return;
     if (!staffMap[s.staff_id]) {
       staffMap[s.staff_id] = {
@@ -444,7 +507,7 @@ async function getAdminOverviewReport(dateFrom, dateTo) {
     st.total_present += Math.max(0, t - a);
   });
 
-  const byStaff = Object.values(staffMap).map(st => ({
+  const byStaff: StaffOverviewItem[] = Object.values(staffMap).map((st) => ({
     staff_id: st.staff_id,
     staff_name: st.staff_name,
     sessions_taken: st.sessions_taken,
@@ -452,14 +515,14 @@ async function getAdminOverviewReport(dateFrom, dateTo) {
   }));
 
   // Low attendance students (below 75%)
-  const sessionIds = sessions.map(s => s.id);
+  const sessionIds = sessions.map((s: { id: string }) => s.id);
   const { data: allRecords } = await supabaseAdmin
     .from('attendance_records')
     .select('student_id, status')
     .in('session_id', sessionIds);
 
-  const studentAttMap = {};
-  (allRecords || []).forEach(r => {
+  const studentAttMap: Record<string, { total: number; present: number }> = {};
+  (allRecords || []).forEach((r: { student_id: string; status: string }) => {
     if (!studentAttMap[r.student_id]) {
       studentAttMap[r.student_id] = { total: 0, present: 0 };
     }
@@ -471,27 +534,27 @@ async function getAdminOverviewReport(dateFrom, dateTo) {
     .filter(([_, v]) => v.total > 0 && ((v.present / v.total) * 100) < 75)
     .map(([id]) => id);
 
-  let lowAttendanceStudents = [];
+  let lowAttendanceStudents: LowAttendanceStudent[] = [];
   if (lowAttStudentIds.length > 0) {
-    const { data: students } = await supabaseAdmin
+    const { data: studentsData } = await supabaseAdmin
       .from('students')
       .select('id, roll_number, full_name')
       .in('id', lowAttStudentIds);
 
     // Get class names for these students
-    const { data: assignments } = await supabaseAdmin
+    const { data: assignmentsData } = await supabaseAdmin
       .from('student_class_assignments')
       .select('student_id, classes(name)')
       .in('student_id', lowAttStudentIds);
 
-    const studentClassMap = {};
-    (assignments || []).forEach(a => {
+    const studentClassMap: Record<string, string> = {};
+    ((assignmentsData || []) as any[]).forEach((a: any) => {
       if (!studentClassMap[a.student_id]) {
         studentClassMap[a.student_id] = a.classes?.name || '';
       }
     });
 
-    lowAttendanceStudents = (students || []).map(s => {
+    lowAttendanceStudents = (studentsData || []).map((s: { id: string; roll_number: string; full_name: string }) => {
       const att = studentAttMap[s.id];
       return {
         student_id: s.id,
@@ -500,7 +563,7 @@ async function getAdminOverviewReport(dateFrom, dateTo) {
         class_name: studentClassMap[s.id] || '',
         overall_pct: att ? parseFloat(((att.present / att.total) * 100).toFixed(2)) : null
       };
-    }).sort((a, b) => (a.overall_pct ?? 999) - (b.overall_pct ?? 999));
+    }).sort((a: LowAttendanceStudent, b: LowAttendanceStudent) => (a.overall_pct ?? 999) - (b.overall_pct ?? 999));
   }
 
   return {
@@ -515,7 +578,7 @@ async function getAdminOverviewReport(dateFrom, dateTo) {
   };
 }
 
-module.exports = {
+export {
   getStudentAttendanceStats,
   getClassAttendanceStats,
   getFullStudentReport,

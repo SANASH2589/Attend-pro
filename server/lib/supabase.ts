@@ -1,9 +1,11 @@
-const { createClient } = require('@supabase/supabase-js');
-require('dotenv').config();
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
 
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+dotenv.config();
+
+const supabaseUrl: string = process.env.SUPABASE_URL || '';
+const supabaseAnonKey: string = process.env.SUPABASE_ANON_KEY || '';
+const supabaseServiceKey: string = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
   console.warn(
@@ -12,7 +14,7 @@ if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
 }
 
 // Client for standard auth requests (e.g. signing in users)
-const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+const supabaseClient: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: false,
     autoRefreshToken: false
@@ -20,14 +22,14 @@ const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
 });
 
 // Admin client for database queries that bypass RLS (e.g. fetching user profile details)
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+const supabaseAdmin: SupabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
   auth: {
     persistSession: false,
     autoRefreshToken: false
   }
 });
 
-module.exports = {
+export {
   supabaseClient,
   supabaseAdmin
 };

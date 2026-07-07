@@ -1,17 +1,20 @@
-const { createClient } = require('@supabase/supabase-js');
+import { Request, Response, NextFunction } from 'express';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { AuthenticatedUser } from '../types';
 
 // Service-role client — only used server-side, never expose this key to the client
-const supabaseAdmin = createClient(
+const supabaseAdmin: SupabaseClient = createClient(
   process.env.SUPABASE_URL || '',
   process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 );
 
-async function authMiddleware(req, res, next) {
+async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'Missing or invalid Authorization header' });
+      res.status(401).json({ message: 'Missing or invalid Authorization header' });
+      return;
     }
 
     const token = authHeader.split(' ')[1];
@@ -21,7 +24,8 @@ async function authMiddleware(req, res, next) {
     const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
 
     if (error || !user) {
-      return res.status(401).json({ message: 'Invalid or expired token' });
+      res.status(401).json({ message: 'Invalid or expired token' });
+      return;
     }
 
     // Fetch role + profile info from profiles table
@@ -32,11 +36,13 @@ async function authMiddleware(req, res, next) {
       .single();
 
     if (profileError || !profile) {
-      return res.status(401).json({ message: 'User profile not found' });
+      res.status(401).json({ message: 'User profile not found' });
+      return;
     }
 
     if (profile.status !== 'ACTIVE') {
-      return res.status(403).json({ message: 'Account is deactivated' });
+      res.status(403).json({ message: 'Account is deactivated' });
+      return;
     }
 
     // Attach to request — normalize role to lowercase for downstream guards
@@ -49,25 +55,23 @@ async function authMiddleware(req, res, next) {
     };
 
     next();
-  } catch (err) {
-    console.error('Auth middleware error:', err.message);
-    return res.status(500).json({ message: 'Authentication check failed' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Auth middleware error:', message);
+    res.status(500).json({ message: 'Authentication check failed' });
   }
 }
 
 // Role guard — use after authMiddleware
-function requireRole(...allowedRoles) {
-  return (req, res, next) => {
+function requireRole(...allowedRoles: string[]) {
+  return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user || !allowedRoles.includes(req.user.role)) {
-      return res.status(403).json({ message: 'Insufficient permissions' });
+      res.status(403).json({ message: 'Insufficient permissions' });
+      return;
     }
     next();
   };
 }
 
-// Support both function-direct import and object destructuring
-authMiddleware.authMiddleware = authMiddleware;
-authMiddleware.requireRole = requireRole;
-
-module.exports = authMiddleware;
-
+export default authMiddleware;
+export { authMiddleware, requireRole };

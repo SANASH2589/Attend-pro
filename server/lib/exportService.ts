@@ -1,6 +1,7 @@
-const PDFDocument = require('pdfkit');
-const ExcelJS = require('exceljs');
-const { getFullClassReport, getFullStudentReport } = require('./attendanceStats');
+import PDFDocument from 'pdfkit';
+import ExcelJS from 'exceljs';
+import { getFullClassReport, getFullStudentReport } from './attendanceStats';
+import type { FullClassReport, FullStudentReport, StudentStat, DailyStat, SessionDetail } from '../types';
 
 // ============================================================
 // EXCEL EXPORTS
@@ -9,7 +10,11 @@ const { getFullClassReport, getFullStudentReport } = require('./attendanceStats'
 /**
  * Export class attendance report as Excel workbook with 2 sheets.
  */
-async function exportClassReportExcel(classId, dateFrom, dateTo) {
+async function exportClassReportExcel(
+  classId: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<ExcelJS.Buffer> {
   const report = await getFullClassReport(classId, dateFrom, dateTo);
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Attend-Pro';
@@ -37,7 +42,7 @@ async function exportClassReportExcel(classId, dateFrom, dateTo) {
   // Header row (row 4)
   const headerRow = sheet1.addRow(['Roll No.', 'Student Name', 'Present', 'Absent', 'Total Sessions', 'Attendance %']);
   headerRow.font = { bold: true, size: 11 };
-  headerRow.eachCell(cell => {
+  headerRow.eachCell((cell: ExcelJS.Cell) => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
     cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
   });
@@ -49,7 +54,7 @@ async function exportClassReportExcel(classId, dateFrom, dateTo) {
   if (report.students.length === 0) {
     sheet1.addRow(['No data for selected period', '', '', '', '', '']);
   } else {
-    report.students.forEach(s => {
+    report.students.forEach((s: StudentStat) => {
       const row = sheet1.addRow([
         s.roll_number,
         s.full_name,
@@ -61,7 +66,7 @@ async function exportClassReportExcel(classId, dateFrom, dateTo) {
 
       // Conditional formatting on percentage column
       const pctCell = row.getCell(6);
-      if (s.percentage !== null) {
+      if (s.percentage !== null && s.percentage !== undefined) {
         pctCell.numFmt = '0.00"%"';
         if (s.percentage >= 75) {
           pctCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0FDF4' } };
@@ -78,7 +83,7 @@ async function exportClassReportExcel(classId, dateFrom, dateTo) {
   }
 
   // Auto-size columns
-  sheet1.columns.forEach(col => {
+  sheet1.columns.forEach((col: Partial<ExcelJS.Column>) => {
     col.width = 18;
   });
   sheet1.getColumn(2).width = 28;
@@ -88,7 +93,7 @@ async function exportClassReportExcel(classId, dateFrom, dateTo) {
 
   const dailyHeader = sheet2.addRow(['Date', 'Session Type', 'Present', 'Absent', 'Attendance %']);
   dailyHeader.font = { bold: true, size: 11 };
-  dailyHeader.eachCell(cell => {
+  dailyHeader.eachCell((cell: ExcelJS.Cell) => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
     cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
   });
@@ -98,7 +103,7 @@ async function exportClassReportExcel(classId, dateFrom, dateTo) {
   if (report.daily.length === 0) {
     sheet2.addRow(['No data for selected period', '', '', '', '']);
   } else {
-    report.daily.forEach(d => {
+    report.daily.forEach((d: DailyStat) => {
       const row = sheet2.addRow([
         d.session_date,
         d.session_type === 'morning' ? 'Morning' : 'Evening',
@@ -120,7 +125,7 @@ async function exportClassReportExcel(classId, dateFrom, dateTo) {
     });
   }
 
-  sheet2.columns.forEach(col => { col.width = 18; });
+  sheet2.columns.forEach((col: Partial<ExcelJS.Column>) => { col.width = 18; });
 
   return await workbook.xlsx.writeBuffer();
 }
@@ -128,7 +133,12 @@ async function exportClassReportExcel(classId, dateFrom, dateTo) {
 /**
  * Export student attendance report as Excel workbook.
  */
-async function exportStudentReportExcel(studentId, classId, dateFrom, dateTo) {
+async function exportStudentReportExcel(
+  studentId: string,
+  classId?: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<ExcelJS.Buffer> {
   const report = await getFullStudentReport(studentId, classId, dateFrom, dateTo);
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Attend-Pro';
@@ -152,7 +162,7 @@ async function exportStudentReportExcel(studentId, classId, dateFrom, dateTo) {
   // Session detail table
   const headerRow = sheet.addRow(['Date', 'Class', 'Session', 'Status']);
   headerRow.font = { bold: true, size: 11 };
-  headerRow.eachCell(cell => {
+  headerRow.eachCell((cell: ExcelJS.Cell) => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
     cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } };
   });
@@ -160,7 +170,7 @@ async function exportStudentReportExcel(studentId, classId, dateFrom, dateTo) {
   if (report.sessions.length === 0) {
     sheet.addRow(['No data for selected period', '', '', '']);
   } else {
-    report.sessions.forEach(s => {
+    report.sessions.forEach((s: SessionDetail) => {
       const row = sheet.addRow([
         s.session_date,
         s.class_name,
@@ -177,7 +187,7 @@ async function exportStudentReportExcel(studentId, classId, dateFrom, dateTo) {
     });
   }
 
-  sheet.columns.forEach(col => { col.width = 20; });
+  sheet.columns.forEach((col: Partial<ExcelJS.Column>) => { col.width = 20; });
 
   return await workbook.xlsx.writeBuffer();
 }
@@ -189,14 +199,18 @@ async function exportStudentReportExcel(studentId, classId, dateFrom, dateTo) {
 /**
  * Export class attendance report as PDF.
  */
-async function exportClassReportPDF(classId, dateFrom, dateTo) {
+async function exportClassReportPDF(
+  classId: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<Buffer> {
   const report = await getFullClassReport(classId, dateFrom, dateTo);
 
-  return new Promise((resolve, reject) => {
+  return new Promise<Buffer>((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
-    const chunks = [];
+    const chunks: Buffer[] = [];
 
-    doc.on('data', chunk => chunks.push(chunk));
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
@@ -231,7 +245,7 @@ async function exportClassReportPDF(classId, dateFrom, dateTo) {
     // Draw header
     let xPos = startX;
     doc.fontSize(8).font('Helvetica-Bold').fillColor('#475569');
-    headers.forEach((h, i) => {
+    headers.forEach((h: string, i: number) => {
       doc.text(h, xPos, tableTop, { width: colWidths[i] });
       xPos += colWidths[i];
     });
@@ -243,7 +257,7 @@ async function exportClassReportPDF(classId, dateFrom, dateTo) {
       doc.fontSize(9).font('Helvetica').fillColor('#94A3B8')
         .text('No data for selected period', startX, yPos);
     } else {
-      report.students.forEach((s, idx) => {
+      report.students.forEach((s: StudentStat, idx: number) => {
         // Check for page break
         if (yPos > 720) {
           doc.addPage();
@@ -264,8 +278,8 @@ async function exportClassReportPDF(classId, dateFrom, dateTo) {
         doc.text(String(s.total_sessions), xPos, yPos, { width: colWidths[4] }); xPos += colWidths[4];
 
         // Percentage with color
-        const pctText = s.percentage !== null ? `${s.percentage}%` : '—';
-        const pctColor = s.percentage !== null ? (s.percentage >= 75 ? '#16A34A' : s.percentage >= 50 ? '#D97706' : '#DC2626') : '#94A3B8';
+        const pctText = s.percentage !== null && s.percentage !== undefined ? `${s.percentage}%` : '—';
+        const pctColor = s.percentage !== null && s.percentage !== undefined ? (s.percentage >= 75 ? '#16A34A' : s.percentage >= 50 ? '#D97706' : '#DC2626') : '#94A3B8';
         doc.font('Helvetica-Bold').fillColor(pctColor).text(pctText, xPos, yPos, { width: colWidths[5] });
         doc.fillColor('#0F172A');
 
@@ -289,14 +303,19 @@ async function exportClassReportPDF(classId, dateFrom, dateTo) {
 /**
  * Export student attendance report as PDF.
  */
-async function exportStudentReportPDF(studentId, classId, dateFrom, dateTo) {
+async function exportStudentReportPDF(
+  studentId: string,
+  classId?: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<Buffer> {
   const report = await getFullStudentReport(studentId, classId, dateFrom, dateTo);
 
-  return new Promise((resolve, reject) => {
+  return new Promise<Buffer>((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50, bufferPages: true });
-    const chunks = [];
+    const chunks: Buffer[] = [];
 
-    doc.on('data', chunk => chunks.push(chunk));
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
@@ -336,7 +355,7 @@ async function exportStudentReportPDF(studentId, classId, dateFrom, dateTo) {
 
     let xPos = startX;
     doc.fontSize(8).font('Helvetica-Bold').fillColor('#475569');
-    headers.forEach((h, i) => {
+    headers.forEach((h: string, i: number) => {
       doc.text(h, xPos, tableTop, { width: colWidths[i] });
       xPos += colWidths[i];
     });
@@ -348,7 +367,7 @@ async function exportStudentReportPDF(studentId, classId, dateFrom, dateTo) {
       doc.fontSize(9).font('Helvetica').fillColor('#94A3B8')
         .text('No data for selected period', startX, yPos);
     } else {
-      report.sessions.forEach((s, idx) => {
+      report.sessions.forEach((s: SessionDetail, idx: number) => {
         if (yPos > 720) {
           doc.addPage();
           yPos = 50;
@@ -386,7 +405,7 @@ async function exportStudentReportPDF(studentId, classId, dateFrom, dateTo) {
   });
 }
 
-module.exports = {
+export {
   exportClassReportExcel,
   exportStudentReportExcel,
   exportClassReportPDF,

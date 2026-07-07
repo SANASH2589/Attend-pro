@@ -1,13 +1,16 @@
-const express = require('express');
+import express, { Request, Response, NextFunction } from 'express';
+import { supabaseAdmin } from '../lib/supabase';
+import authMiddleware from '../middleware/auth';
+import { z } from 'zod';
+import type { Profile, NormalizedProfile } from '../types';
+
 const router = express.Router();
-const { supabaseAdmin } = require('../lib/supabase');
-const authMiddleware = require('../middleware/auth');
-const { z } = require('zod');
 
 // Middleware to ensure user is super_admin
-const superAdminOnly = (req, res, next) => {
-  if (req.user.role !== 'super_admin') {
-    return res.status(403).json({ message: 'Access denied. Super Admin role required.' });
+const superAdminOnly = (req: Request, res: Response, next: NextFunction): void => {
+  if (req.user!.role !== 'super_admin') {
+    res.status(403).json({ message: 'Access denied. Super Admin role required.' });
+    return;
   }
   next();
 };
@@ -31,7 +34,7 @@ const updateStaffSchema = z.object({
 });
 
 // Helper to normalize a profiles row for the API response
-function normalizeProfile(row) {
+function normalizeProfile(row: Profile): NormalizedProfile {
   return {
     id: row.id,
     email: row.email,
@@ -47,7 +50,7 @@ function normalizeProfile(row) {
  * GET /api/v1/staff
  * Retrieve all registered staff members, sorted by full_name.
  */
-router.get('/', async (req, res) => {
+router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { data: staff, error } = await supabaseAdmin
       .from('profiles')
@@ -59,10 +62,11 @@ router.get('/', async (req, res) => {
       throw error;
     }
 
-    return res.json(staff.map(normalizeProfile));
-  } catch (err) {
-    console.error('Error fetching staff list:', err.message);
-    return res.status(500).json({ message: 'Failed to retrieve staff list.' });
+    res.json(staff!.map((row: Profile) => normalizeProfile(row)));
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error fetching staff list:', message);
+    res.status(500).json({ message: 'Failed to retrieve staff list.' });
   }
 });
 
@@ -70,12 +74,13 @@ router.get('/', async (req, res) => {
  * POST /api/v1/staff
  * Registers a new staff member in Supabase Auth and inserts their profile into the profiles table.
  */
-router.post('/', async (req, res) => {
-  let createdAuthUserId = null;
+router.post('/', async (req: Request, res: Response): Promise<void> => {
+  let createdAuthUserId: string | null = null;
   try {
     const parseResult = createStaffSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res.status(400).json({ message: parseResult.error.errors[0].message });
+      res.status(400).json({ message: parseResult.error.errors[0].message });
+      return;
     }
 
     const { email, password, full_name, phone } = parseResult.data;
@@ -89,9 +94,10 @@ router.post('/', async (req, res) => {
     });
 
     if (authError || !authData.user) {
-      return res.status(400).json({
+      res.status(400).json({
         message: authError?.message || 'Failed to create auth credentials.'
       });
+      return;
     }
 
     createdAuthUserId = authData.user.id;
@@ -114,21 +120,23 @@ router.post('/', async (req, res) => {
       throw userError;
     }
 
-    return res.status(201).json(normalizeProfile(userData));
-  } catch (err) {
-    console.error('Error creating staff account:', err.message);
+    res.status(201).json(normalizeProfile(userData));
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error creating staff account:', message);
     
     // Cleanup auth user if database insertion failed
     if (createdAuthUserId) {
       try {
         await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
-      } catch (cleanupErr) {
-        console.error('Failed to cleanup auth user after db insertion error:', cleanupErr.message);
+      } catch (cleanupErr: unknown) {
+        const cleanupMessage = cleanupErr instanceof Error ? cleanupErr.message : 'Unknown error';
+        console.error('Failed to cleanup auth user after db insertion error:', cleanupMessage);
       }
     }
 
-    return res.status(500).json({
-      message: err.message || 'Internal server error occurred while creating staff.'
+    res.status(500).json({
+      message: message || 'Internal server error occurred while creating staff.'
     });
   }
 });
@@ -137,15 +145,16 @@ router.post('/', async (req, res) => {
  * PUT /api/v1/staff/:id
  * Updates an existing staff profile details.
  */
-router.put('/:id', async (req, res) => {
+router.put('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const parseResult = updateStaffSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res.status(400).json({ message: parseResult.error.errors[0].message });
+      res.status(400).json({ message: parseResult.error.errors[0].message });
+      return;
     }
 
-    const updateData = { ...parseResult.data };
+    const updateData: Record<string, unknown> = { ...parseResult.data };
 
     // Map is_active boolean from client to status string for DB
     if ('is_active' in req.body) {
@@ -160,11 +169,13 @@ router.put('/:id', async (req, res) => {
       .single();
 
     if (checkError || !existingUser) {
-      return res.status(404).json({ message: 'Staff member not found.' });
+      res.status(404).json({ message: 'Staff member not found.' });
+      return;
     }
 
     if (existingUser.role !== 'STAFF') {
-      return res.status(400).json({ message: 'User is not a staff member.' });
+      res.status(400).json({ message: 'User is not a staff member.' });
+      return;
     }
 
     // Update public.profiles record
@@ -179,10 +190,11 @@ router.put('/:id', async (req, res) => {
       throw updateError;
     }
 
-    return res.json(normalizeProfile(updatedUser));
-  } catch (err) {
-    console.error('Error updating staff profile:', err.message);
-    return res.status(500).json({ message: 'Failed to update staff profile.' });
+    res.json(normalizeProfile(updatedUser));
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error updating staff profile:', message);
+    res.status(500).json({ message: 'Failed to update staff profile.' });
   }
 });
 
@@ -190,7 +202,7 @@ router.put('/:id', async (req, res) => {
  * DELETE /api/v1/staff/:id
  * Deactivates a staff member (marks status = INACTIVE).
  */
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
 
@@ -202,11 +214,13 @@ router.delete('/:id', async (req, res) => {
       .single();
 
     if (checkError || !existingUser) {
-      return res.status(404).json({ message: 'Staff member not found.' });
+      res.status(404).json({ message: 'Staff member not found.' });
+      return;
     }
 
     if (existingUser.role !== 'STAFF') {
-      return res.status(400).json({ message: 'User is not a staff member.' });
+      res.status(400).json({ message: 'User is not a staff member.' });
+      return;
     }
 
     const { data: deactivatedUser, error: deactivateError } = await supabaseAdmin
@@ -220,14 +234,15 @@ router.delete('/:id', async (req, res) => {
       throw deactivateError;
     }
 
-    return res.json({
+    res.json({
       success: true,
       message: 'Staff member deactivated successfully.',
       user: normalizeProfile(deactivatedUser)
     });
-  } catch (err) {
-    console.error('Error deactivating staff member:', err.message);
-    return res.status(500).json({ message: 'Failed to deactivate staff member.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error deactivating staff member:', message);
+    res.status(500).json({ message: 'Failed to deactivate staff member.' });
   }
 });
 
@@ -235,13 +250,14 @@ router.delete('/:id', async (req, res) => {
  * POST /api/super-admin/staff/:id/reset-password
  * Resets the password of a staff member.
  */
-router.post('/:id/reset-password', async (req, res) => {
+router.post('/:id/reset-password', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const { password } = req.body;
 
     if (!password || password.length < 6) {
-      return res.status(400).json({ message: 'Password must be at least 6 characters long' });
+      res.status(400).json({ message: 'Password must be at least 6 characters long' });
+      return;
     }
 
     // Verify user exists and is staff
@@ -252,11 +268,13 @@ router.post('/:id/reset-password', async (req, res) => {
       .single();
 
     if (checkError || !existingUser) {
-      return res.status(404).json({ message: 'Staff member not found.' });
+      res.status(404).json({ message: 'Staff member not found.' });
+      return;
     }
 
     if (existingUser.role !== 'STAFF') {
-      return res.status(400).json({ message: 'User is not a staff member.' });
+      res.status(400).json({ message: 'User is not a staff member.' });
+      return;
     }
 
     // Update password in Supabase Auth
@@ -268,11 +286,12 @@ router.post('/:id/reset-password', async (req, res) => {
       throw authError;
     }
 
-    return res.json({ success: true, message: 'Password reset successfully.' });
-  } catch (err) {
-    console.error('Error resetting staff password:', err.message);
-    return res.status(500).json({ message: err.message || 'Failed to reset staff password.' });
+    res.json({ success: true, message: 'Password reset successfully.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error resetting staff password:', message);
+    res.status(500).json({ message: message || 'Failed to reset staff password.' });
   }
 });
 
-module.exports = router;
+export default router;

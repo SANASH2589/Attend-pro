@@ -1,13 +1,15 @@
-const express = require('express');
+import express, { Request, Response, NextFunction } from 'express';
+import { supabaseAdmin } from '../lib/supabase';
+import authMiddleware from '../middleware/auth';
+import { z } from 'zod';
+
 const router = express.Router();
-const { supabaseAdmin } = require('../lib/supabase');
-const authMiddleware = require('../middleware/auth');
-const { z } = require('zod');
 
 // Middleware to ensure user is super_admin
-const superAdminOnly = (req, res, next) => {
-  if (req.user.role !== 'super_admin') {
-    return res.status(403).json({ message: 'Access denied. Super Admin role required.' });
+const superAdminOnly = (req: Request, res: Response, next: NextFunction): void => {
+  if (req.user!.role !== 'super_admin') {
+    res.status(403).json({ message: 'Access denied. Super Admin role required.' });
+    return;
   }
   next();
 };
@@ -31,7 +33,7 @@ const staffAssignmentSchema = z.object({
  * GET /api/v1/assignments/students/:class_id
  * Returns assigned and unassigned active students for the given class section.
  */
-router.get('/students/:class_id', async (req, res) => {
+router.get('/students/:class_id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { class_id } = req.params;
 
@@ -52,24 +54,25 @@ router.get('/students/:class_id', async (req, res) => {
 
     if (assignErr) throw assignErr;
 
-    const assignedIds = new Set((assignments || []).map(a => a.student_id));
+    const assignedIds = new Set((assignments || []).map((a: { student_id: string }) => a.student_id));
 
     // 3. Partition students
-    const assigned = [];
-    const unassigned = [];
+    const assigned: typeof allStudents = [];
+    const unassigned: typeof allStudents = [];
 
-    (allStudents || []).forEach(student => {
+    (allStudents || []).forEach((student: any) => {
       if (assignedIds.has(student.id)) {
-        assigned.push(student);
+        assigned!.push(student);
       } else {
-        unassigned.push(student);
+        unassigned!.push(student);
       }
     });
 
-    return res.json({ assigned, unassigned });
-  } catch (err) {
-    console.error('Error fetching student assignments:', err.message);
-    return res.status(500).json({ message: 'Failed to retrieve student assignment lists.' });
+    res.json({ assigned, unassigned });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error fetching student assignments:', message);
+    res.status(500).json({ message: 'Failed to retrieve student assignment lists.' });
   }
 });
 
@@ -77,11 +80,12 @@ router.get('/students/:class_id', async (req, res) => {
  * POST /api/v1/assignments/students
  * Assigns a student to a class section.
  */
-router.post('/students', async (req, res) => {
+router.post('/students', async (req: Request, res: Response): Promise<void> => {
   try {
     const parseResult = studentAssignmentSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res.status(400).json({ message: parseResult.error.errors[0].message });
+      res.status(400).json({ message: parseResult.error.errors[0].message });
+      return;
     }
 
     const { student_id, class_id } = parseResult.data;
@@ -97,7 +101,8 @@ router.post('/students', async (req, res) => {
     if (checkError) throw checkError;
 
     if (existing) {
-      return res.status(409).json({ message: 'This student is already assigned to the class.' });
+      res.status(409).json({ message: 'This student is already assigned to the class.' });
+      return;
     }
 
     // Create assignment
@@ -109,10 +114,11 @@ router.post('/students', async (req, res) => {
 
     if (insertError) throw insertError;
 
-    return res.status(201).json(newAssignment);
-  } catch (err) {
-    console.error('Error assigning student to class:', err.message);
-    return res.status(500).json({ message: 'Failed to assign student to class.' });
+    res.status(201).json(newAssignment);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error assigning student to class:', message);
+    res.status(500).json({ message: 'Failed to assign student to class.' });
   }
 });
 
@@ -120,13 +126,14 @@ router.post('/students', async (req, res) => {
  * DELETE /api/v1/assignments/students
  * Unassigns a student from a class section.
  */
-router.delete('/students', async (req, res) => {
+router.delete('/students', async (req: Request, res: Response): Promise<void> => {
   try {
-    const student_id = req.body.student_id || req.query.student_id;
-    const class_id = req.body.class_id || req.query.class_id;
+    const student_id = (req.body.student_id || req.query.student_id) as string | undefined;
+    const class_id = (req.body.class_id || req.query.class_id) as string | undefined;
 
     if (!student_id || !class_id) {
-      return res.status(400).json({ message: 'Both student_id and class_id are required.' });
+      res.status(400).json({ message: 'Both student_id and class_id are required.' });
+      return;
     }
 
     const { error } = await supabaseAdmin
@@ -137,10 +144,11 @@ router.delete('/students', async (req, res) => {
 
     if (error) throw error;
 
-    return res.json({ success: true, message: 'Student unassigned successfully.' });
-  } catch (err) {
-    console.error('Error unassigning student from class:', err.message);
-    return res.status(500).json({ message: 'Failed to unassign student from class.' });
+    res.json({ success: true, message: 'Student unassigned successfully.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error unassigning student from class:', message);
+    res.status(500).json({ message: 'Failed to unassign student from class.' });
   }
 });
 
@@ -148,7 +156,7 @@ router.delete('/students', async (req, res) => {
  * GET /api/v1/assignments/staff/:class_id
  * Returns assigned and unassigned active staff members for the given class section.
  */
-router.get('/staff/:class_id', async (req, res) => {
+router.get('/staff/:class_id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { class_id } = req.params;
 
@@ -170,24 +178,25 @@ router.get('/staff/:class_id', async (req, res) => {
 
     if (assignErr) throw assignErr;
 
-    const assignedIds = new Set((assignments || []).map(a => a.staff_id));
+    const assignedIds = new Set((assignments || []).map((a: { staff_id: string }) => a.staff_id));
 
     // 3. Partition staff members
-    const assigned = [];
-    const unassigned = [];
+    const assigned: typeof allStaff = [];
+    const unassigned: typeof allStaff = [];
 
-    (allStaff || []).forEach(staff => {
+    (allStaff || []).forEach((staff: any) => {
       if (assignedIds.has(staff.id)) {
-        assigned.push(staff);
+        assigned!.push(staff);
       } else {
-        unassigned.push(staff);
+        unassigned!.push(staff);
       }
     });
 
-    return res.json({ assigned, unassigned });
-  } catch (err) {
-    console.error('Error fetching staff assignments:', err.message);
-    return res.status(500).json({ message: 'Failed to retrieve staff assignment lists.' });
+    res.json({ assigned, unassigned });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error fetching staff assignments:', message);
+    res.status(500).json({ message: 'Failed to retrieve staff assignment lists.' });
   }
 });
 
@@ -195,11 +204,12 @@ router.get('/staff/:class_id', async (req, res) => {
  * POST /api/v1/assignments/staff
  * Assigns a staff member to a class section.
  */
-router.post('/staff', async (req, res) => {
+router.post('/staff', async (req: Request, res: Response): Promise<void> => {
   try {
     const parseResult = staffAssignmentSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res.status(400).json({ message: parseResult.error.errors[0].message });
+      res.status(400).json({ message: parseResult.error.errors[0].message });
+      return;
     }
 
     const { staff_id, class_id } = parseResult.data;
@@ -215,7 +225,8 @@ router.post('/staff', async (req, res) => {
     if (checkError) throw checkError;
 
     if (existing) {
-      return res.status(409).json({ message: 'This staff member is already assigned to the class.' });
+      res.status(409).json({ message: 'This staff member is already assigned to the class.' });
+      return;
     }
 
     // Create assignment
@@ -227,10 +238,11 @@ router.post('/staff', async (req, res) => {
 
     if (insertError) throw insertError;
 
-    return res.status(201).json(newAssignment);
-  } catch (err) {
-    console.error('Error assigning staff to class:', err.message);
-    return res.status(500).json({ message: 'Failed to assign staff to class.' });
+    res.status(201).json(newAssignment);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error assigning staff to class:', message);
+    res.status(500).json({ message: 'Failed to assign staff to class.' });
   }
 });
 
@@ -238,13 +250,14 @@ router.post('/staff', async (req, res) => {
  * DELETE /api/v1/assignments/staff
  * Unassigns a staff member from a class section.
  */
-router.delete('/staff', async (req, res) => {
+router.delete('/staff', async (req: Request, res: Response): Promise<void> => {
   try {
-    const staff_id = req.body.staff_id || req.query.staff_id;
-    const class_id = req.body.class_id || req.query.class_id;
+    const staff_id = (req.body.staff_id || req.query.staff_id) as string | undefined;
+    const class_id = (req.body.class_id || req.query.class_id) as string | undefined;
 
     if (!staff_id || !class_id) {
-      return res.status(400).json({ message: 'Both staff_id and class_id are required.' });
+      res.status(400).json({ message: 'Both staff_id and class_id are required.' });
+      return;
     }
 
     const { error } = await supabaseAdmin
@@ -255,11 +268,12 @@ router.delete('/staff', async (req, res) => {
 
     if (error) throw error;
 
-    return res.json({ success: true, message: 'Staff member unassigned successfully.' });
-  } catch (err) {
-    console.error('Error unassigning staff from class:', err.message);
-    return res.status(500).json({ message: 'Failed to unassign staff from class.' });
+    res.json({ success: true, message: 'Staff member unassigned successfully.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error unassigning staff from class:', message);
+    res.status(500).json({ message: 'Failed to unassign staff from class.' });
   }
 });
 
-module.exports = router;
+export default router;

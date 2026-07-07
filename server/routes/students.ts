@@ -1,11 +1,13 @@
-const express = require('express');
+import express, { Request, Response, NextFunction } from 'express';
+import { supabaseAdmin } from '../lib/supabase';
+import authMiddleware from '../middleware/auth';
+import { z } from 'zod';
+import multer from 'multer';
+import { parse } from 'csv-parse/sync';
+import xlsx from 'xlsx';
+import type { ImportValidationError, ImportSummary, NormalizedImportRow } from '../types';
+
 const router = express.Router();
-const { supabaseAdmin } = require('../lib/supabase');
-const authMiddleware = require('../middleware/auth');
-const { z } = require('zod');
-const multer = require('multer');
-const { parse } = require('csv-parse/sync');
-const xlsx = require('xlsx');
 
 // Multer memory storage configuration
 const upload = multer({
@@ -14,9 +16,10 @@ const upload = multer({
 });
 
 // Middleware to ensure user is super_admin
-const superAdminOnly = (req, res, next) => {
-  if (req.user.role !== 'super_admin') {
-    return res.status(403).json({ message: 'Access denied. Super Admin role required.' });
+const superAdminOnly = (req: Request, res: Response, next: NextFunction): void => {
+  if (req.user!.role !== 'super_admin') {
+    res.status(403).json({ message: 'Access denied. Super Admin role required.' });
+    return;
   }
   next();
 };
@@ -45,9 +48,9 @@ const updateStudentSchema = z.object({
  * GET /api/v1/students
  * Retrieve all students with optional filters for search and class_id.
  */
-router.get('/', async (req, res) => {
+router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { search, class_id } = req.query;
+    const { search, class_id } = req.query as { search?: string; class_id?: string };
 
     let query = supabaseAdmin
       .from('students')
@@ -63,11 +66,12 @@ router.get('/', async (req, res) => {
 
       if (assignError) throw assignError;
 
-      const studentIds = (assignments || []).map(a => a.student_id);
+      const studentIds = (assignments || []).map((a: { student_id: string }) => a.student_id);
       
       // If no students are assigned to this class, we should return an empty array
       if (studentIds.length === 0) {
-        return res.json([]);
+        res.json([]);
+        return;
       }
       
       query = query.in('id', studentIds);
@@ -80,10 +84,11 @@ router.get('/', async (req, res) => {
     const { data: students, error } = await query;
     if (error) throw error;
 
-    return res.json(students);
-  } catch (err) {
-    console.error('Error fetching students list:', err.message);
-    return res.status(500).json({ message: 'Failed to retrieve student records.' });
+    res.json(students);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error fetching students list:', message);
+    res.status(500).json({ message: 'Failed to retrieve student records.' });
   }
 });
 
@@ -91,14 +96,15 @@ router.get('/', async (req, res) => {
  * POST /api/v1/students
  * Creates a new student profile in the database.
  */
-router.post('/', async (req, res) => {
+router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const parseResult = studentSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res.status(400).json({ message: parseResult.error.errors[0].message });
+      res.status(400).json({ message: parseResult.error.errors[0].message });
+      return;
     }
 
-    const studentData = parseResult.data;
+    const studentData: Record<string, unknown> = { ...parseResult.data };
     
     // Normalize empty email string to null
     if (studentData.email === '') {
@@ -109,11 +115,12 @@ router.post('/', async (req, res) => {
     const { data: existingStudent, error: checkError } = await supabaseAdmin
       .from('students')
       .select('id')
-      .eq('roll_number', studentData.roll_number)
+      .eq('roll_number', studentData.roll_number as string)
       .maybeSingle();
 
     if (existingStudent) {
-      return res.status(409).json({ message: `Roll number ${studentData.roll_number} is already registered.` });
+      res.status(409).json({ message: `Roll number ${studentData.roll_number} is already registered.` });
+      return;
     }
 
     const { data: newStudent, error } = await supabaseAdmin
@@ -124,10 +131,11 @@ router.post('/', async (req, res) => {
 
     if (error) throw error;
 
-    return res.status(201).json(newStudent);
-  } catch (err) {
-    console.error('Error creating student:', err.message);
-    return res.status(500).json({ message: err.message || 'Failed to create student.' });
+    res.status(201).json(newStudent);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error creating student:', message);
+    res.status(500).json({ message: message || 'Failed to create student.' });
   }
 });
 
@@ -135,15 +143,16 @@ router.post('/', async (req, res) => {
  * PUT /api/v1/students/:id
  * Updates details of an existing student.
  */
-router.put('/:id', async (req, res) => {
+router.put('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const parseResult = updateStudentSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res.status(400).json({ message: parseResult.error.errors[0].message });
+      res.status(400).json({ message: parseResult.error.errors[0].message });
+      return;
     }
 
-    const updateData = parseResult.data;
+    const updateData: Record<string, unknown> = { ...parseResult.data };
     
     // Normalize empty email string to null
     if (updateData.email === '') {
@@ -158,7 +167,8 @@ router.put('/:id', async (req, res) => {
       .single();
 
     if (checkError || !existingStudent) {
-      return res.status(404).json({ message: 'Student record not found.' });
+      res.status(404).json({ message: 'Student record not found.' });
+      return;
     }
 
     // If updating roll_number, check for duplicates
@@ -166,12 +176,13 @@ router.put('/:id', async (req, res) => {
       const { data: conflictStudent, error: conflictCheckError } = await supabaseAdmin
         .from('students')
         .select('id')
-        .eq('roll_number', updateData.roll_number)
+        .eq('roll_number', updateData.roll_number as string)
         .neq('id', id)
         .maybeSingle();
 
       if (conflictStudent) {
-        return res.status(409).json({ message: `Roll number ${updateData.roll_number} is already in use by another student.` });
+        res.status(409).json({ message: `Roll number ${updateData.roll_number} is already in use by another student.` });
+        return;
       }
     }
 
@@ -184,10 +195,11 @@ router.put('/:id', async (req, res) => {
 
     if (error) throw error;
 
-    return res.json(updatedStudent);
-  } catch (err) {
-    console.error('Error updating student profile:', err.message);
-    return res.status(500).json({ message: 'Failed to update student profile.' });
+    res.json(updatedStudent);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error updating student profile:', message);
+    res.status(500).json({ message: 'Failed to update student profile.' });
   }
 });
 
@@ -195,7 +207,7 @@ router.put('/:id', async (req, res) => {
  * DELETE /api/v1/students/:id
  * Deactivates a student profile (sets is_active = false).
  */
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
 
@@ -207,7 +219,8 @@ router.delete('/:id', async (req, res) => {
       .single();
 
     if (checkError || !existingStudent) {
-      return res.status(404).json({ message: 'Student record not found.' });
+      res.status(404).json({ message: 'Student record not found.' });
+      return;
     }
 
     const { data: deactivatedStudent, error } = await supabaseAdmin
@@ -219,22 +232,23 @@ router.delete('/:id', async (req, res) => {
 
     if (error) throw error;
 
-    return res.json({
+    res.json({
       success: true,
       message: 'Student record deactivated successfully.',
       student: deactivatedStudent
     });
-  } catch (err) {
-    console.error('Error deactivating student:', err.message);
-    return res.status(500).json({ message: 'Failed to deactivate student record.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error deactivating student:', message);
+    res.status(500).json({ message: 'Failed to deactivate student record.' });
   }
 });
 
 /**
  * Helper to normalize column keys to match database fields
  */
-function normalizeKeys(row) {
-  const normalized = {};
+function normalizeKeys(row: Record<string, unknown>): Partial<NormalizedImportRow> {
+  const normalized: Partial<NormalizedImportRow> = {};
   for (const key of Object.keys(row)) {
     const k = key.toLowerCase().trim().replace(/[\s_-]+/g, '');
     if (k === 'rollnumber' || k === 'rollno' || k === 'roll' || k === 'roll_number') {
@@ -255,14 +269,15 @@ function normalizeKeys(row) {
  * Accept CSV or Excel uploads, validates columns and content, checks database roll conflicts,
  * and bulk inserts valid rows. Returns detail list of validation failures if any exist.
  */
-router.post('/import', upload.single('file'), async (req, res) => {
+router.post('/import', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
   try {
     if (!req.file) {
-      return res.status(400).json({ message: 'No file uploaded.' });
+      res.status(400).json({ message: 'No file uploaded.' });
+      return;
     }
 
-    let parsedRows = [];
-    const extension = req.file.originalname.split('.').pop().toLowerCase();
+    let parsedRows: Record<string, unknown>[] = [];
+    const extension = req.file.originalname.split('.').pop()!.toLowerCase();
 
     if (extension === 'csv') {
       try {
@@ -272,7 +287,8 @@ router.post('/import', upload.single('file'), async (req, res) => {
           trim: true
         });
       } catch (parseErr) {
-        return res.status(400).json({ message: 'Failed to parse CSV file. Ensure it is a valid format.' });
+        res.status(400).json({ message: 'Failed to parse CSV file. Ensure it is a valid format.' });
+        return;
       }
     } else if (['xls', 'xlsx'].includes(extension)) {
       try {
@@ -281,14 +297,17 @@ router.post('/import', upload.single('file'), async (req, res) => {
         const worksheet = workbook.Sheets[sheetName];
         parsedRows = xlsx.utils.sheet_to_json(worksheet);
       } catch (parseErr) {
-        return res.status(400).json({ message: 'Failed to parse Excel file.' });
+        res.status(400).json({ message: 'Failed to parse Excel file.' });
+        return;
       }
     } else {
-      return res.status(400).json({ message: 'Unsupported file type. Only CSV and Excel (.xls/.xlsx) files are supported.' });
+      res.status(400).json({ message: 'Unsupported file type. Only CSV and Excel (.xls/.xlsx) files are supported.' });
+      return;
     }
 
     if (parsedRows.length === 0) {
-      return res.status(400).json({ message: 'The uploaded file does not contain any data.' });
+      res.status(400).json({ message: 'The uploaded file does not contain any data.' });
+      return;
     }
 
     // 1. Normalize and clean the row fields
@@ -298,9 +317,9 @@ router.post('/import', upload.single('file'), async (req, res) => {
     }));
 
     // 2. Perform validations
-    const errors = [];
-    const validRows = [];
-    const rollNumbersSeenInImport = new Set();
+    const errors: ImportValidationError[] = [];
+    const validRows: { roll_number: string; full_name: string; parent_phone: string; email: string | null; is_active: boolean }[] = [];
+    const rollNumbersSeenInImport = new Set<string>();
 
     // Fetch existing roll numbers from DB to verify duplicate conflicts
     const { data: dbStudents, error: dbErr } = await supabaseAdmin
@@ -308,10 +327,10 @@ router.post('/import', upload.single('file'), async (req, res) => {
       .select('roll_number');
 
     if (dbErr) throw dbErr;
-    const dbRollNumbers = new Set((dbStudents || []).map(s => s.roll_number));
+    const dbRollNumbers = new Set((dbStudents || []).map((s: { roll_number: string }) => s.roll_number));
 
     for (const row of normalizedRows) {
-      const rowErrors = [];
+      const rowErrors: string[] = [];
 
       if (!row.roll_number) {
         rowErrors.push('Roll Number is missing.');
@@ -352,16 +371,16 @@ router.post('/import', upload.single('file'), async (req, res) => {
         });
       } else {
         validRows.push({
-          roll_number: row.roll_number,
-          full_name: row.full_name,
-          parent_phone: row.parent_phone,
+          roll_number: row.roll_number!,
+          full_name: row.full_name!,
+          parent_phone: row.parent_phone!,
           email: row.email || null,
           is_active: true
         });
       }
     }
 
-    const summary = {
+    const summary: ImportSummary = {
       total: normalizedRows.length,
       valid: validRows.length,
       invalid: errors.length
@@ -369,11 +388,12 @@ router.post('/import', upload.single('file'), async (req, res) => {
 
     // If there are validation errors, we reject the import entirely (transactional/all-or-nothing behavior)
     if (errors.length > 0) {
-      return res.json({
+      res.json({
         success: false,
         summary,
         errors
       });
+      return;
     }
 
     // Insert all valid student records
@@ -386,14 +406,15 @@ router.post('/import', upload.single('file'), async (req, res) => {
       throw insertError;
     }
 
-    return res.json({
+    res.json({
       success: true,
       summary,
-      importedCount: insertedStudents.length
+      importedCount: insertedStudents!.length
     });
-  } catch (err) {
-    console.error('Error during bulk import of students:', err.message);
-    return res.status(500).json({ message: 'Internal server error during student bulk import.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error during bulk import of students:', message);
+    res.status(500).json({ message: 'Internal server error during student bulk import.' });
   }
 });
 
@@ -401,14 +422,15 @@ router.post('/import', upload.single('file'), async (req, res) => {
  * POST /api/super-admin/students/import-preview
  * Parses and validates CSV/Excel roster without writing to DB, returning a preview.
  */
-router.post('/import-preview', upload.single('file'), async (req, res) => {
+router.post('/import-preview', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
   try {
     if (!req.file) {
-      return res.status(400).json({ message: 'No file uploaded.' });
+      res.status(400).json({ message: 'No file uploaded.' });
+      return;
     }
 
-    let parsedRows = [];
-    const extension = req.file.originalname.split('.').pop().toLowerCase();
+    let parsedRows: Record<string, unknown>[] = [];
+    const extension = req.file.originalname.split('.').pop()!.toLowerCase();
 
     if (extension === 'csv') {
       try {
@@ -418,7 +440,8 @@ router.post('/import-preview', upload.single('file'), async (req, res) => {
           trim: true
         });
       } catch (parseErr) {
-        return res.status(400).json({ message: 'Failed to parse CSV file. Ensure it is a valid format.' });
+        res.status(400).json({ message: 'Failed to parse CSV file. Ensure it is a valid format.' });
+        return;
       }
     } else if (['xls', 'xlsx'].includes(extension)) {
       try {
@@ -427,14 +450,17 @@ router.post('/import-preview', upload.single('file'), async (req, res) => {
         const worksheet = workbook.Sheets[sheetName];
         parsedRows = xlsx.utils.sheet_to_json(worksheet);
       } catch (parseErr) {
-        return res.status(400).json({ message: 'Failed to parse Excel file.' });
+        res.status(400).json({ message: 'Failed to parse Excel file.' });
+        return;
       }
     } else {
-      return res.status(400).json({ message: 'Unsupported file type. Only CSV and Excel (.xls/.xlsx) files are supported.' });
+      res.status(400).json({ message: 'Unsupported file type. Only CSV and Excel (.xls/.xlsx) files are supported.' });
+      return;
     }
 
     if (parsedRows.length === 0) {
-      return res.status(400).json({ message: 'The uploaded file does not contain any data.' });
+      res.status(400).json({ message: 'The uploaded file does not contain any data.' });
+      return;
     }
 
     const normalizedRows = parsedRows.map((row, idx) => ({
@@ -442,19 +468,19 @@ router.post('/import-preview', upload.single('file'), async (req, res) => {
       ...normalizeKeys(row)
     }));
 
-    const errors = [];
-    const validRows = [];
-    const rollNumbersSeenInImport = new Set();
+    const errors: ImportValidationError[] = [];
+    const validRows: { roll_number: string; full_name: string; parent_phone: string; email: string | null; is_active: boolean }[] = [];
+    const rollNumbersSeenInImport = new Set<string>();
 
     const { data: dbStudents, error: dbErr } = await supabaseAdmin
       .from('students')
       .select('roll_number');
 
     if (dbErr) throw dbErr;
-    const dbRollNumbers = new Set((dbStudents || []).map(s => s.roll_number));
+    const dbRollNumbers = new Set((dbStudents || []).map((s: { roll_number: string }) => s.roll_number));
 
     for (const row of normalizedRows) {
-      const rowErrors = [];
+      const rowErrors: string[] = [];
 
       if (!row.roll_number) {
         rowErrors.push('Roll Number is missing.');
@@ -495,30 +521,31 @@ router.post('/import-preview', upload.single('file'), async (req, res) => {
         });
       } else {
         validRows.push({
-          roll_number: row.roll_number,
-          full_name: row.full_name,
-          parent_phone: row.parent_phone,
+          roll_number: row.roll_number!,
+          full_name: row.full_name!,
+          parent_phone: row.parent_phone!,
           email: row.email || null,
           is_active: true
         });
       }
     }
 
-    const summary = {
+    const summary: ImportSummary = {
       total: normalizedRows.length,
       valid: validRows.length,
       invalid: errors.length
     };
 
-    return res.json({
+    res.json({
       success: errors.length === 0,
       summary,
       errors,
       previewRows: validRows
     });
-  } catch (err) {
-    console.error('Error during import preview:', err.message);
-    return res.status(500).json({ message: 'Internal server error during student import preview.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error during import preview:', message);
+    res.status(500).json({ message: 'Internal server error during student import preview.' });
   }
 });
 
@@ -526,11 +553,12 @@ router.post('/import-preview', upload.single('file'), async (req, res) => {
  * POST /api/super-admin/students/import-save
  * Inserts the validated preview students list into the database.
  */
-router.post('/import-save', async (req, res) => {
+router.post('/import-save', async (req: Request, res: Response): Promise<void> => {
   try {
     const { students } = req.body;
     if (!students || !Array.isArray(students) || students.length === 0) {
-      return res.status(400).json({ message: 'No student data to save.' });
+      res.status(400).json({ message: 'No student data to save.' });
+      return;
     }
 
     const { data: insertedStudents, error: insertError } = await supabaseAdmin
@@ -542,14 +570,15 @@ router.post('/import-save', async (req, res) => {
       throw insertError;
     }
 
-    return res.json({
+    res.json({
       success: true,
-      importedCount: insertedStudents.length
+      importedCount: insertedStudents!.length
     });
-  } catch (err) {
-    console.error('Error saving imported students:', err.message);
-    return res.status(500).json({ message: 'Internal server error during saving imported students.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error saving imported students:', message);
+    res.status(500).json({ message: 'Internal server error during saving imported students.' });
   }
 });
 
-module.exports = router;
+export default router;

@@ -1,18 +1,20 @@
-const express = require('express');
+import express, { Request, Response, NextFunction } from 'express';
+import { supabaseAdmin } from '../lib/supabase';
+import authMiddleware from '../middleware/auth';
+import { getStudentAttendanceStats, getClassAttendanceStats } from '../lib/attendanceStats';
+import type { SessionState, SessionStatus, ClassConfig } from '../types';
+
 const router = express.Router();
-const { supabaseAdmin } = require('../lib/supabase');
-const authMiddleware = require('../middleware/auth');
-const { getStudentAttendanceStats, getClassAttendanceStats } = require('../lib/attendanceStats');
 
 // Helper to convert time "HH:MM" to minutes from midnight
-function timeToMinutes(t) {
+function timeToMinutes(t: string | null | undefined): number {
   if (!t) return 0;
   const [h, m] = t.split(':').map(Number);
   return h * 60 + m;
 }
 
 // Helper to determine today's local date string YYYY-MM-DD
-function getTodayDateString() {
+function getTodayDateString(): string {
   const d = new Date();
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -21,16 +23,18 @@ function getTodayDateString() {
 }
 
 // Role authorization checks
-const superAdminOnly = (req, res, next) => {
-  if (req.user.role !== 'super_admin') {
-    return res.status(403).json({ message: 'Access denied. Super Admin role required.' });
+const superAdminOnly = (req: Request, res: Response, next: NextFunction): void => {
+  if (req.user!.role !== 'super_admin') {
+    res.status(403).json({ message: 'Access denied. Super Admin role required.' });
+    return;
   }
   next();
 };
 
-const staffOnly = (req, res, next) => {
-  if (req.user.role !== 'staff') {
-    return res.status(403).json({ message: 'Access denied. Faculty/Staff role required.' });
+const staffOnly = (req: Request, res: Response, next: NextFunction): void => {
+  if (req.user!.role !== 'staff') {
+    res.status(403).json({ message: 'Access denied. Faculty/Staff role required.' });
+    return;
   }
   next();
 };
@@ -39,8 +43,13 @@ const staffOnly = (req, res, next) => {
 router.use(authMiddleware);
 
 // Helper to calculate gating status state
-function evaluateSessionState(type, classObj, todaySession, currentMinutes) {
-  const batchType = classObj.batch_type;
+function evaluateSessionState(
+  type: 'morning' | 'evening',
+  classObj: Record<string, unknown>,
+  todaySession: { id: string; is_locked: boolean; submitted_at?: string } | null | undefined,
+  currentMinutes: number
+): SessionState {
+  const batchType = classObj.batch_type as string;
   const hasSession = (type === 'morning' && (batchType === 'morning' || batchType === 'both')) ||
                      (type === 'evening' && (batchType === 'evening' || batchType === 'both'));
                      
@@ -54,14 +63,14 @@ function evaluateSessionState(type, classObj, todaySession, currentMinutes) {
     };
   }
 
-  const startStr = classObj[`${type}_start`];
-  const lockStr = classObj[`${type}_lock`];
+  const startStr = classObj[`${type}_start`] as string | null;
+  const lockStr = classObj[`${type}_lock`] as string | null;
   const opens_at = startStr ? startStr.slice(0, 5) : null;
   const locks_at = lockStr ? lockStr.slice(0, 5) : null;
 
   if (todaySession) {
     return {
-      status: todaySession.is_locked ? 'locked' : 'locked', // Re-take blocked if submitted
+      status: 'locked',
       session_id: todaySession.id,
       is_submitted: true,
       is_locked: todaySession.is_locked,
@@ -109,7 +118,7 @@ function evaluateSessionState(type, classObj, todaySession, currentMinutes) {
  * GET /api/v1/attendance/my-classes
  * Returns classes assigned to the logged-in staff member, with today's session details.
  */
-router.get('/my-classes', staffOnly, async (req, res) => {
+router.get('/my-classes', staffOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const todayStr = getTodayDateString();
 
@@ -117,16 +126,17 @@ router.get('/my-classes', staffOnly, async (req, res) => {
     const { data: assignments, error: assignErr } = await supabaseAdmin
       .from('staff_class_assignments')
       .select('class_id, classes(*)')
-      .eq('staff_id', req.user.id);
+      .eq('staff_id', req.user!.id);
 
     if (assignErr) throw assignErr;
 
     if (!assignments || assignments.length === 0) {
-      return res.json([]);
+      res.json([]);
+      return;
     }
 
-    const assignedClasses = assignments.map(a => a.classes).filter(Boolean);
-    const classIds = assignedClasses.map(c => c.id);
+    const assignedClasses = (assignments as any[]).map((a: any) => a.classes).filter(Boolean) as Record<string, unknown>[];
+    const classIds = assignedClasses.map((c) => c.id as string);
 
     // 2. Fetch today's submission details
     const { data: todaySessions, error: sessErr } = await supabaseAdmin
@@ -141,12 +151,12 @@ router.get('/my-classes', staffOnly, async (req, res) => {
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
     // 3. Map status states
-    const result = assignedClasses.map(c => {
-      const morningSession = (todaySessions || []).find(s => s.class_id === c.id && s.session_type === 'morning');
-      const eveningSession = (todaySessions || []).find(s => s.class_id === c.id && s.session_type === 'evening');
+    const result = assignedClasses.map((c) => {
+      const morningSession = (todaySessions || []).find((s: { class_id: string; session_type: string }) => s.class_id === c.id && s.session_type === 'morning');
+      const eveningSession = (todaySessions || []).find((s: { class_id: string; session_type: string }) => s.class_id === c.id && s.session_type === 'evening');
 
-      const morningState = evaluateSessionState('morning', c, morningSession, currentMinutes);
-      const eveningState = evaluateSessionState('evening', c, eveningSession, currentMinutes);
+      const morningState = evaluateSessionState('morning', c, morningSession as { id: string; is_locked: boolean; submitted_at?: string } | null, currentMinutes);
+      const eveningState = evaluateSessionState('evening', c, eveningSession as { id: string; is_locked: boolean; submitted_at?: string } | null, currentMinutes);
 
       return {
         id: c.id,
@@ -163,10 +173,11 @@ router.get('/my-classes', staffOnly, async (req, res) => {
       };
     });
 
-    return res.json(result);
-  } catch (err) {
-    console.error('Error fetching my-classes list:', err.message);
-    return res.status(500).json({ message: 'Failed to retrieve assigned class structures.' });
+    res.json(result);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error fetching my-classes list:', message);
+    res.status(500).json({ message: 'Failed to retrieve assigned class structures.' });
   }
 });
 
@@ -174,7 +185,7 @@ router.get('/my-classes', staffOnly, async (req, res) => {
  * GET /api/v1/attendance/session-status/:classId
  * Evaluates morning/evening scheduling windows compared to server time.
  */
-router.get('/session-status/:classId', staffOnly, async (req, res) => {
+router.get('/session-status/:classId', staffOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const { classId } = req.params;
     const todayStr = getTodayDateString();
@@ -186,7 +197,8 @@ router.get('/session-status/:classId', staffOnly, async (req, res) => {
       .single();
 
     if (classErr || !classObj) {
-      return res.status(404).json({ message: 'Class section configuration not found.' });
+      res.status(404).json({ message: 'Class section configuration not found.' });
+      return;
     }
 
     const { data: todaySessions, error: sessErr } = await supabaseAdmin
@@ -200,16 +212,17 @@ router.get('/session-status/:classId', staffOnly, async (req, res) => {
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
-    const morningSession = (todaySessions || []).find(s => s.session_type === 'morning');
-    const eveningSession = (todaySessions || []).find(s => s.session_type === 'evening');
+    const morningSession = (todaySessions || []).find((s: { session_type: string }) => s.session_type === 'morning');
+    const eveningSession = (todaySessions || []).find((s: { session_type: string }) => s.session_type === 'evening');
 
-    return res.json({
-      morning: evaluateSessionState('morning', classObj, morningSession, currentMinutes),
-      evening: evaluateSessionState('evening', classObj, eveningSession, currentMinutes)
+    res.json({
+      morning: evaluateSessionState('morning', classObj, morningSession as { id: string; is_locked: boolean; submitted_at?: string } | null, currentMinutes),
+      evening: evaluateSessionState('evening', classObj, eveningSession as { id: string; is_locked: boolean; submitted_at?: string } | null, currentMinutes)
     });
-  } catch (err) {
-    console.error('Error checking session window status:', err.message);
-    return res.status(500).json({ message: 'Failed to check class window status.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error checking session window status:', message);
+    res.status(500).json({ message: 'Failed to check class window status.' });
   }
 });
 
@@ -217,10 +230,10 @@ router.get('/session-status/:classId', staffOnly, async (req, res) => {
  * GET /api/v1/attendance/students/:classId
  * Returns assigned active student roster with statuses if session_id is active.
  */
-router.get('/students/:classId', staffOnly, async (req, res) => {
+router.get('/students/:classId', staffOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const { classId } = req.params;
-    const { session_id } = req.query;
+    const { session_id } = req.query as { session_id?: string };
 
     // 1. Fetch active students assigned to this section
     const { data: assignments, error: assignErr } = await supabaseAdmin
@@ -230,13 +243,13 @@ router.get('/students/:classId', staffOnly, async (req, res) => {
 
     if (assignErr) throw assignErr;
 
-    const students = (assignments || [])
-      .map(a => a.student)
-      .filter(s => s && s.is_active)
-      .sort((a, b) => a.roll_number.localeCompare(b.roll_number));
+    const students = ((assignments || []) as any[])
+      .map((a: any) => a.student)
+      .filter((s: any): s is Record<string, unknown> => s !== null && s.is_active === true)
+      .sort((a: any, b: any) => (a.roll_number as string).localeCompare(b.roll_number as string));
 
     // 2. Fetch record mappings if session is specified
-    const recordMap = {};
+    const recordMap: Record<string, string> = {};
     if (session_id) {
       const { data: records, error: recsErr } = await supabaseAdmin
         .from('attendance_records')
@@ -245,22 +258,23 @@ router.get('/students/:classId', staffOnly, async (req, res) => {
 
       if (recsErr) throw recsErr;
 
-      (records || []).forEach(r => {
+      (records || []).forEach((r: { student_id: string; status: string }) => {
         recordMap[r.student_id] = r.status;
       });
     }
 
-    const result = students.map(s => ({
+    const result = students.map((s: Record<string, unknown>) => ({
       id: s.id,
       roll_number: s.roll_number,
       full_name: s.full_name,
-      status: recordMap[s.id] || 'present'
+      status: recordMap[s.id as string] || 'present'
     }));
 
-    return res.json(result);
-  } catch (err) {
-    console.error('Error fetching student class list:', err.message);
-    return res.status(500).json({ message: 'Failed to retrieve student roster.' });
+    res.json(result);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error fetching student class list:', message);
+    res.status(500).json({ message: 'Failed to retrieve student roster.' });
   }
 });
 
@@ -269,24 +283,30 @@ router.get('/students/:classId', staffOnly, async (req, res) => {
  * Atomically submits attendance sheet for a class section.
  * Post-submission flow: save → lock → recalculate stats.
  */
-router.post('/submit', staffOnly, async (req, res) => {
+router.post('/submit', staffOnly, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { class_id, session_type, absent_student_ids } = req.body;
+    const { class_id, session_type, absent_student_ids } = req.body as {
+      class_id: string;
+      session_type: string;
+      absent_student_ids: string[];
+    };
 
     if (!class_id || !session_type || !Array.isArray(absent_student_ids)) {
-      return res.status(400).json({ message: 'Missing required request body params.' });
+      res.status(400).json({ message: 'Missing required request body params.' });
+      return;
     }
 
     // 1. Validate staff assignment
     const { data: hasAssign, error: assignErr } = await supabaseAdmin
       .from('staff_class_assignments')
       .select('id')
-      .eq('staff_id', req.user.id)
+      .eq('staff_id', req.user!.id)
       .eq('class_id', class_id)
       .maybeSingle();
 
     if (assignErr || !hasAssign) {
-      return res.status(403).json({ message: 'You are not assigned to instruct this class section.' });
+      res.status(403).json({ message: 'You are not assigned to instruct this class section.' });
+      return;
     }
 
     // 2. Fetch class settings and re-verify time window is open
@@ -297,7 +317,8 @@ router.post('/submit', staffOnly, async (req, res) => {
       .single();
 
     if (classErr || !classObj) {
-      return res.status(404).json({ message: 'Target class configuration not found.' });
+      res.status(404).json({ message: 'Target class configuration not found.' });
+      return;
     }
 
     const todayStr = getTodayDateString();
@@ -312,15 +333,17 @@ router.post('/submit', staffOnly, async (req, res) => {
       .maybeSingle();
 
     if (existingSession) {
-      return res.status(409).json({ message: 'Attendance already submitted for this session' });
+      res.status(409).json({ message: 'Attendance already submitted for this session' });
+      return;
     }
 
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const sessionState = evaluateSessionState(session_type, classObj, null, currentMinutes);
+    const sessionState = evaluateSessionState(session_type as 'morning' | 'evening', classObj, null, currentMinutes);
 
     if (sessionState.status !== 'open') {
-      return res.status(400).json({ message: `Attendance window is not currently open. Status is: ${sessionState.status}` });
+      res.status(400).json({ message: `Attendance window is not currently open. Status is: ${sessionState.status}` });
+      return;
     }
 
     // 3. Fetch assigned students list — filtered by class_id
@@ -331,10 +354,10 @@ router.post('/submit', staffOnly, async (req, res) => {
 
     if (studErr) throw studErr;
 
-    const activeStudentIds = (studentAssigns || [])
-      .map(a => a.student)
-      .filter(s => s && s.is_active)
-      .map(s => s.id);
+    const activeStudentIds = ((studentAssigns || []) as any[])
+      .map((a: any) => a.student)
+      .filter((s: any): s is { id: string; is_active: boolean } => s !== null && s.is_active)
+      .map((s: any) => s.id);
 
     const totalStudents = activeStudentIds.length;
 
@@ -343,7 +366,7 @@ router.post('/submit', staffOnly, async (req, res) => {
       .from('attendance_sessions')
       .insert({
         class_id,
-        staff_id: req.user.id,
+        staff_id: req.user!.id,
         session_date: todayStr,
         session_type,
         is_locked: true,
@@ -356,15 +379,16 @@ router.post('/submit', staffOnly, async (req, res) => {
       .single();
 
     if (sessErr) {
-      if (sessErr.code === '23505') { // UNIQUE check
-        return res.status(409).json({ message: 'Attendance already submitted for this session' });
+      if ((sessErr as { code?: string }).code === '23505') { // UNIQUE check
+        res.status(409).json({ message: 'Attendance already submitted for this session' });
+        return;
       }
       throw sessErr;
     }
 
     // 5. Bulk insert records
-    const recordsToInsert = activeStudentIds.map(sid => ({
-      session_id: session.id,
+    const recordsToInsert = activeStudentIds.map((sid: string) => ({
+      session_id: session!.id,
       student_id: sid,
       status: absent_student_ids.includes(sid) ? 'absent' : 'present'
     }));
@@ -376,7 +400,7 @@ router.post('/submit', staffOnly, async (req, res) => {
 
       if (insertErr) {
         // Rollback session insert if record insertions fail
-        await supabaseAdmin.from('attendance_sessions').delete().eq('id', session.id);
+        await supabaseAdmin.from('attendance_sessions').delete().eq('id', session!.id);
         throw insertErr;
       }
     }
@@ -386,20 +410,22 @@ router.post('/submit', staffOnly, async (req, res) => {
       const classStats = await getClassAttendanceStats(class_id);
       // Stats are calculated — consumers will read fresh data on next request
       console.log(`[Post-Submit Stats] Class ${class_id} stats recalculated.`);
-    } catch (statsErr) {
-      console.error('[Post-Submit Stats] Recalculation error:', statsErr.message);
+    } catch (statsErr: unknown) {
+      const statsMessage = statsErr instanceof Error ? statsErr.message : 'Unknown error';
+      console.error('[Post-Submit Stats] Recalculation error:', statsMessage);
     }
 
-    return res.status(201).json({
-      session_id: session.id,
+    res.status(201).json({
+      session_id: session!.id,
       total_students: totalStudents,
       total_absent: absent_student_ids.length,
-      submitted_at: session.submitted_at,
+      submitted_at: session!.submitted_at,
       is_locked: true
     });
-  } catch (err) {
-    console.error('Error submitting attendance sheet:', err.message);
-    return res.status(500).json({ message: err.message || 'Internal error during attendance submission.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error submitting attendance sheet:', message);
+    res.status(500).json({ message: message || 'Internal error during attendance submission.' });
   }
 });
 
@@ -411,9 +437,15 @@ router.post('/submit', staffOnly, async (req, res) => {
  * GET /api/v1/attendance/all-sessions
  * Returns paginated sessions history list for administration dashboard.
  */
-router.get('/all-sessions', superAdminOnly, async (req, res) => {
+router.get('/all-sessions', superAdminOnly, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { class_id, date_from, date_to, page, limit } = req.query;
+    const { class_id, date_from, date_to, page, limit } = req.query as {
+      class_id?: string;
+      date_from?: string;
+      date_to?: string;
+      page?: string;
+      limit?: string;
+    };
 
     let query = supabaseAdmin
       .from('attendance_sessions')
@@ -437,8 +469,8 @@ router.get('/all-sessions', superAdminOnly, async (req, res) => {
     if (date_from) query = query.gte('session_date', date_from);
     if (date_to) query = query.lte('session_date', date_to);
 
-    const pageNum = parseInt(page) || 1;
-    const limitNum = parseInt(limit) || 20;
+    const pageNum = parseInt(page || '1') || 1;
+    const limitNum = parseInt(limit || '20') || 20;
     const from = (pageNum - 1) * limitNum;
     const to = from + limitNum - 1;
 
@@ -450,7 +482,7 @@ router.get('/all-sessions', superAdminOnly, async (req, res) => {
     if (error) throw error;
 
     // Map profiles back to users for frontend compatibility
-    const mappedSessions = (sessions || []).map(s => {
+    const mappedSessions = (sessions || []).map((s: Record<string, unknown>) => {
       const { profiles, ...rest } = s;
       return {
         ...rest,
@@ -458,15 +490,16 @@ router.get('/all-sessions', superAdminOnly, async (req, res) => {
       };
     });
 
-    return res.json({
+    res.json({
       sessions: mappedSessions,
       total: count || 0,
       page: pageNum,
       limit: limitNum
     });
-  } catch (err) {
-    console.error('Error querying all sessions:', err.message);
-    return res.status(500).json({ message: 'Failed to retrieve attendance monitoring sessions.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error querying all sessions:', message);
+    res.status(500).json({ message: 'Failed to retrieve attendance monitoring sessions.' });
   }
 });
 
@@ -474,7 +507,7 @@ router.get('/all-sessions', superAdminOnly, async (req, res) => {
  * GET /api/v1/attendance/session/:sessionId
  * Returns full session details and active student records.
  */
-router.get('/session/:sessionId', async (req, res) => {
+router.get('/session/:sessionId', async (req: Request, res: Response): Promise<void> => {
   try {
     const { sessionId } = req.params;
 
@@ -486,20 +519,22 @@ router.get('/session/:sessionId', async (req, res) => {
       .single();
 
     if (sessErr || !session) {
-      return res.status(404).json({ message: 'Attendance session not found.' });
+      res.status(404).json({ message: 'Attendance session not found.' });
+      return;
     }
 
     // Role gate checks: staff can only view details if assigned to class
-    if (req.user.role === 'staff') {
+    if (req.user!.role === 'staff') {
       const { data: assign } = await supabaseAdmin
          .from('staff_class_assignments')
          .select('id')
-         .eq('staff_id', req.user.id)
+         .eq('staff_id', req.user!.id)
          .eq('class_id', session.class_id)
          .maybeSingle();
 
       if (!assign) {
-        return res.status(403).json({ message: 'Access denied to this session log.' });
+        res.status(403).json({ message: 'Access denied to this session log.' });
+        return;
       }
     }
 
@@ -517,13 +552,14 @@ router.get('/session/:sessionId', async (req, res) => {
       delete session.profiles;
     }
 
-    return res.json({
+    res.json({
       session,
       records: records || []
     });
-  } catch (err) {
-    console.error('Error fetching session detail:', err.message);
-    return res.status(500).json({ message: 'Failed to retrieve session detail log.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error fetching session detail:', message);
+    res.status(500).json({ message: 'Failed to retrieve session detail log.' });
   }
 });
 
@@ -531,7 +567,7 @@ router.get('/session/:sessionId', async (req, res) => {
  * PUT /api/v1/attendance/session/:sessionId/lock
  * Manually locks a session (admin only).
  */
-router.put('/session/:sessionId/lock', superAdminOnly, async (req, res) => {
+router.put('/session/:sessionId/lock', superAdminOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const { sessionId } = req.params;
 
@@ -547,10 +583,11 @@ router.put('/session/:sessionId/lock', superAdminOnly, async (req, res) => {
 
     if (error) throw error;
 
-    return res.json(updated);
-  } catch (err) {
-    console.error('Error locking session:', err.message);
-    return res.status(500).json({ message: 'Failed to lock session logs.' });
+    res.json(updated);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error locking session:', message);
+    res.status(500).json({ message: 'Failed to lock session logs.' });
   }
 });
 
@@ -558,7 +595,7 @@ router.put('/session/:sessionId/lock', superAdminOnly, async (req, res) => {
  * PUT /api/v1/attendance/session/:sessionId/unlock
  * Manually unlocks a session (admin only). Registers audit logs.
  */
-router.put('/session/:sessionId/unlock', superAdminOnly, async (req, res) => {
+router.put('/session/:sessionId/unlock', superAdminOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const { sessionId } = req.params;
 
@@ -579,7 +616,7 @@ router.put('/session/:sessionId/unlock', superAdminOnly, async (req, res) => {
       .from('audit_log')
       .insert({
         action: 'unlock_session',
-        actor_id: req.user.id,
+        actor_id: req.user!.id,
         session_id: sessionId
       });
 
@@ -587,10 +624,11 @@ router.put('/session/:sessionId/unlock', superAdminOnly, async (req, res) => {
       console.warn('Failed to insert audit log entry:', logErr.message);
     }
 
-    return res.json(updated);
-  } catch (err) {
-    console.error('Error unlocking session:', err.message);
-    return res.status(500).json({ message: 'Failed to unlock session logs.' });
+    res.json(updated);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error unlocking session:', message);
+    res.status(500).json({ message: 'Failed to unlock session logs.' });
   }
 });
 
@@ -598,30 +636,32 @@ router.put('/session/:sessionId/unlock', superAdminOnly, async (req, res) => {
 // 3. STATS ROUTES
 // ============================================================
 
-router.get('/stats/student/:studentId', async (req, res) => {
+router.get('/stats/student/:studentId', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { studentId } = req.params;
-    const { class_id, date_from, date_to } = req.query;
+    const studentId = req.params.studentId as string;
+    const { class_id, date_from, date_to } = req.query as any;
 
     const stats = await getStudentAttendanceStats(studentId, class_id, date_from, date_to);
-    return res.json(stats);
-  } catch (err) {
-    console.error('Error calculating student stats:', err.message);
-    return res.status(500).json({ message: 'Failed to calculate student attendance statistics.' });
+    res.json(stats);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error calculating student stats:', message);
+    res.status(500).json({ message: 'Failed to calculate student attendance statistics.' });
   }
 });
 
-router.get('/stats/class/:classId', async (req, res) => {
+router.get('/stats/class/:classId', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { classId } = req.params;
-    const { date_from, date_to } = req.query;
+    const classId = req.params.classId as string;
+    const { date_from, date_to } = req.query as any;
 
     const stats = await getClassAttendanceStats(classId, date_from, date_to);
-    return res.json(stats);
-  } catch (err) {
-    console.error('Error calculating class stats:', err.message);
-    return res.status(500).json({ message: 'Failed to calculate class attendance statistics.' });
+    res.json(stats);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error calculating class stats:', message);
+    res.status(500).json({ message: 'Failed to calculate class attendance statistics.' });
   }
 });
 
-module.exports = router;
+export default router;

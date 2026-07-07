@@ -1,8 +1,10 @@
-const express = require('express');
+import express, { Request, Response } from 'express';
+import { supabaseClient, supabaseAdmin } from '../lib/supabase';
+import authMiddleware from '../middleware/auth';
+import { z } from 'zod';
+import type { LoginResponse, ApiError } from '../types';
+
 const router = express.Router();
-const { supabaseClient, supabaseAdmin } = require('../lib/supabase');
-const authMiddleware = require('../middleware/auth');
-const { z } = require('zod');
 
 // Input validation schema using Zod
 const loginSchema = z.object({
@@ -15,11 +17,12 @@ const loginSchema = z.object({
  * Accepts email & password, authenticates via Supabase Auth,
  * verifies record in custom users table, and returns JWT session token and role.
  */
-router.post('/login', async (req, res) => {
+router.post('/login', async (req: Request, res: Response): Promise<void> => {
   try {
     const parseResult = loginSchema.safeParse(req.body);
     if (!parseResult.success) {
-      return res.status(400).json({ message: parseResult.error.errors[0].message });
+      res.status(400).json({ message: parseResult.error.errors[0].message });
+      return;
     }
 
     const { email, password } = parseResult.data;
@@ -31,9 +34,10 @@ router.post('/login', async (req, res) => {
     });
 
     if (authError || !authData.session) {
-      return res.status(401).json({
+      res.status(401).json({
         message: authError?.message || 'Authentication failed. Please verify credentials.'
       });
+      return;
     }
 
     const userId = authData.user.id;
@@ -47,21 +51,23 @@ router.post('/login', async (req, res) => {
 
     if (profileError || !userProfile) {
       // User is authenticated in Supabase auth, but missing in our profiles table
-      return res.status(401).json({
+      res.status(401).json({
         message: 'Your account is not registered in the Attend-Pro system.'
       });
+      return;
     }
 
     if (userProfile.status !== 'ACTIVE') {
-      return res.status(403).json({
+      res.status(403).json({
         message: 'Your account has been deactivated. Please contact administration.'
       });
+      return;
     }
 
     const normalizedRole = userProfile.role.toLowerCase();
 
     // Return the session token, user details, and user role
-    return res.json({
+    res.json({
       token: authData.session.access_token,
       role: normalizedRole,
       user: {
@@ -71,9 +77,10 @@ router.post('/login', async (req, res) => {
         role: normalizedRole
       }
     });
-  } catch (err) {
-    console.error('Login routing error:', err.message);
-    return res.status(500).json({ message: 'Internal server error occurred during login.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Login routing error:', message);
+    res.status(500).json({ message: 'Internal server error occurred during login.' });
   }
 });
 
@@ -81,7 +88,7 @@ router.post('/login', async (req, res) => {
  * POST /api/v1/auth/logout
  * Handles backend notification of session clearance.
  */
-router.post('/logout', async (req, res) => {
+router.post('/logout', async (req: Request, res: Response): Promise<void> => {
   try {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -89,10 +96,11 @@ router.post('/logout', async (req, res) => {
       // Try to sign out in Supabase auth system using standard client
       await supabaseClient.auth.signOut({ scope: 'local' });
     }
-    return res.json({ success: true, message: 'Logged out successfully.' });
-  } catch (err) {
-    console.warn('Supabase logout trigger warning:', err.message);
-    return res.json({ success: true, message: 'Session token cleared.' });
+    res.json({ success: true, message: 'Logged out successfully.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.warn('Supabase logout trigger warning:', message);
+    res.json({ success: true, message: 'Session token cleared.' });
   }
 });
 
@@ -100,13 +108,13 @@ router.post('/logout', async (req, res) => {
  * GET /api/v1/auth/me
  * Retrieves current user profile details based on session bearer token.
  */
-router.get('/me', authMiddleware, (req, res) => {
-  return res.json({
-    id: req.user.id,
-    email: req.user.email,
-    role: req.user.role,
-    name: req.user.full_name || req.user.email.split('@')[0]
+router.get('/me', authMiddleware, (req: Request, res: Response): void => {
+  res.json({
+    id: req.user!.id,
+    email: req.user!.email,
+    role: req.user!.role,
+    name: req.user!.full_name || req.user!.email.split('@')[0]
   });
 });
 
-module.exports = router;
+export default router;

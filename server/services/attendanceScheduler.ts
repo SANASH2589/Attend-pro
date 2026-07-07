@@ -1,10 +1,10 @@
-const cron = require('node-cron');
-const { supabaseAdmin } = require('../lib/supabase');
+import cron from 'node-cron';
+import { supabaseAdmin } from '../lib/supabase';
 
 /**
  * Helper to convert "HH:MM:SS" or "HH:MM" to minutes
  */
-const timeToMinutes = (t) => {
+const timeToMinutes = (t: string | null | undefined): number => {
   if (!t) return 0;
   const parts = t.split(':').map(Number);
   return parts[0] * 60 + parts[1];
@@ -14,7 +14,7 @@ const timeToMinutes = (t) => {
  * Background task to check and auto-lock attendance sessions.
  * Runs every 5 minutes.
  */
-async function runAutoLock() {
+async function runAutoLock(): Promise<void> {
   const cronTime = new Date().toISOString();
   console.log(`[Scheduler] Running attendance auto-lock at ${cronTime}...`);
 
@@ -125,12 +125,14 @@ async function runAutoLock() {
             }
           }
         }
-      } catch (classLoopErr) {
-        console.error(`[Scheduler] Error checking auto-lock for class ${c.name || c.id}:`, classLoopErr.message);
+      } catch (classLoopErr: unknown) {
+        const message = classLoopErr instanceof Error ? classLoopErr.message : 'Unknown error';
+        console.error(`[Scheduler] Error checking auto-lock for class ${c.name || c.id}:`, message);
       }
     }
-  } catch (outerErr) {
-    console.error('[Scheduler] Unexpected error in scheduler run:', outerErr.message);
+  } catch (outerErr: unknown) {
+    const message = outerErr instanceof Error ? outerErr.message : 'Unknown error';
+    console.error('[Scheduler] Unexpected error in scheduler run:', message);
   }
 
   console.log(`[Scheduler] Finished auto-lock check. Classes checked: ${checkedCount}, Sessions locked: ${lockedCount}.`);
@@ -139,18 +141,18 @@ async function runAutoLock() {
 /**
  * Initializes and starts the background attendance cron scheduler
  */
-function startScheduler() {
+function startScheduler(): void {
   console.log('[Scheduler] Scheduler started. Auto-lock checked every 5 minutes.');
   
   // Register node-cron to run every 5 minutes: */5 * * * *
   cron.schedule('*/5 * * * *', () => {
-    runAutoLock().catch((err) => {
+    runAutoLock().catch((err: Error) => {
       console.error('[Scheduler] Cron execution failed unexpectedly:', err.message);
     });
   });
 }
 
-module.exports = {
+export {
   startScheduler,
   runAutoLock // exported for testing/manual triggers
 };

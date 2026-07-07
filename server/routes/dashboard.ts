@@ -1,12 +1,14 @@
-const express = require('express');
+import express, { Request, Response, NextFunction } from 'express';
+import { supabaseAdmin } from '../lib/supabase';
+import authMiddleware from '../middleware/auth';
+
 const router = express.Router();
-const { supabaseAdmin } = require('../lib/supabase');
-const authMiddleware = require('../middleware/auth');
 
 // Middleware to ensure user is super_admin
-const superAdminOnly = (req, res, next) => {
-  if (req.user.role !== 'super_admin') {
-    return res.status(403).json({ message: 'Access denied. Super Admin role required.' });
+const superAdminOnly = (req: Request, res: Response, next: NextFunction): void => {
+  if (req.user!.role !== 'super_admin') {
+    res.status(403).json({ message: 'Access denied. Super Admin role required.' });
+    return;
   }
   next();
 };
@@ -19,7 +21,7 @@ router.use(superAdminOnly);
  * GET /api/super-admin/dashboard/stats
  * Returns aggregate statistics for the admin dashboard.
  */
-router.get('/stats', async (req, res) => {
+router.get('/stats', async (req: Request, res: Response): Promise<void> => {
   try {
     // 1. Count active students
     const { count: studentCount, error: studErr } = await supabaseAdmin
@@ -66,7 +68,7 @@ router.get('/stats', async (req, res) => {
 
     if (sessionErr) throw sessionErr;
 
-    return res.json({
+    res.json({
       stats: {
         students: studentCount || 0,
         staff: staffCount || 0,
@@ -74,10 +76,11 @@ router.get('/stats', async (req, res) => {
       },
       recentSessions: sessions || []
     });
-  } catch (err) {
-    console.error('Error fetching dashboard stats:', err.message);
-    return res.status(500).json({ message: 'Failed to retrieve dashboard statistics.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error fetching dashboard stats:', message);
+    res.status(500).json({ message: 'Failed to retrieve dashboard statistics.' });
   }
 });
 
-module.exports = router;
+export default router;
