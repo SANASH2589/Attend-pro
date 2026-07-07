@@ -3,7 +3,7 @@ import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import ImportResultBanner, { ValidationErrorRow, ImportSummary } from './ImportResultBanner';
 import studentsApi from '../../api/students';
-import { Upload, File, AlertCircle, RefreshCw } from 'lucide-react';
+import { Upload, File, AlertCircle, RefreshCw, Download } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 
 export interface BulkImportModalProps {
@@ -96,6 +96,21 @@ export default function BulkImportModal({
     if (fileInputRef.current) {
       fileInputRef.current.click();
     }
+  };
+
+  const downloadCsvTemplate = () => {
+    const headers = ['roll_number', 'full_name', 'email', 'parent_phone'];
+    const sampleRow = ['ITA2301', 'John Doe', 'john@example.com', '9876543210'];
+    const csvContent = [headers.join(','), sampleRow.join(',')].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'student_import_template.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleUpload = async () => {
@@ -205,46 +220,61 @@ export default function BulkImportModal({
 
         {/* Upload Zone */}
         {!importResult && (
-          <div
-            onDragEnter={handleDrag}
-            onDragOver={handleDrag}
-            onDragLeave={handleDrag}
-            onDrop={handleDrop}
-            onClick={triggerFileSelection}
-            className={`border-2 border-dashed rounded-2xl p-8 text-center flex flex-col items-center justify-center transition-all cursor-pointer select-none ${
-              dragActive
-                ? 'border-blue-500 bg-blue-50/40'
-                : file
-                ? 'border-emerald-300 bg-emerald-50/10'
-                : 'border-slate-200 hover:border-blue-400 hover:bg-slate-50/50'
-            }`}
-          >
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              accept=".csv,.xls,.xlsx"
-              className="hidden"
-            />
-            {file ? (
-              <>
-                <div className="w-12 h-12 bg-emerald-50 text-emerald-500 border border-emerald-100 rounded-2xl flex items-center justify-center mb-3">
-                  <File className="w-5 h-5 shrink-0" />
-                </div>
-                <h4 className="text-xs font-bold text-slate-800">{file.name}</h4>
-                <p className="text-[10px] text-slate-400 mt-1">{(file.size / 1024).toFixed(1)} KB</p>
-                <p className="text-[10px] text-blue-500 font-semibold mt-3">Click or drop to replace file</p>
-              </>
-            ) : (
-              <>
-                <div className="w-12 h-12 bg-blue-50 text-blue-500 border border-blue-100 rounded-2xl flex items-center justify-center mb-3">
-                  <Upload className="w-5 h-5 shrink-0" />
-                </div>
-                <h4 className="text-xs font-bold text-slate-700">Choose CSV or Excel sheet</h4>
-                <p className="text-[10px] text-slate-400 mt-1.5 max-w-[240px] leading-relaxed">
-                  Drag and drop your roster file here or click to browse files from local machine.
-                </p>
-              </>
+          <div className="flex flex-col gap-3">
+            <div
+              onDragEnter={handleDrag}
+              onDragOver={handleDrag}
+              onDragLeave={handleDrag}
+              onDrop={handleDrop}
+              onClick={triggerFileSelection}
+              className={`border-2 border-dashed rounded-2xl p-8 text-center flex flex-col items-center justify-center transition-all cursor-pointer select-none ${
+                dragActive
+                  ? 'border-blue-500 bg-blue-50/40'
+                  : file
+                  ? 'border-emerald-300 bg-emerald-50/10'
+                  : 'border-slate-200 hover:border-blue-400 hover:bg-slate-50/50'
+              }`}
+            >
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept=".csv,.xls,.xlsx"
+                className="hidden"
+              />
+              {file ? (
+                <>
+                  <div className="w-12 h-12 bg-emerald-50 text-emerald-500 border border-emerald-100 rounded-2xl flex items-center justify-center mb-3">
+                    <File className="w-5 h-5 shrink-0" />
+                  </div>
+                  <h4 className="text-xs font-bold text-slate-800">{file.name}</h4>
+                  <p className="text-[10px] text-slate-400 mt-1">{(file.size / 1024).toFixed(1)} KB</p>
+                  <p className="text-[10px] text-blue-500 font-semibold mt-3">Click or drop to replace file</p>
+                </>
+              ) : (
+                <>
+                  <div className="w-12 h-12 bg-blue-50 text-blue-500 border border-blue-100 rounded-2xl flex items-center justify-center mb-3">
+                    <Upload className="w-5 h-5 shrink-0" />
+                  </div>
+                  <h4 className="text-xs font-bold text-slate-700">Choose CSV or Excel sheet</h4>
+                  <p className="text-[10px] text-slate-400 mt-1.5 max-w-[240px] leading-relaxed">
+                    Drag and drop your roster file here or click to browse files from local machine.
+                  </p>
+                </>
+              )}
+            </div>
+            {!file && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  downloadCsvTemplate();
+                }}
+                className="text-xs font-semibold text-blue-500 hover:text-blue-600 flex items-center justify-center gap-1.5 self-center mt-1 cursor-pointer hover:underline"
+              >
+                <Download className="w-3.5 h-3.5 shrink-0" />
+                Download CSV Template
+              </button>
             )}
           </div>
         )}

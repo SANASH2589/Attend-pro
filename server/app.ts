@@ -12,6 +12,7 @@ import assignmentsRouter from './routes/assignments';
 import reportsRouter from './routes/reports';
 import dashboardRouter from './routes/dashboard';
 import attendanceRouter from './routes/attendance';
+import databaseRouter from './routes/database';
 
 // ============================================================
 // Create Express Application
@@ -47,6 +48,7 @@ app.use('/api/super-admin/classes', classesRouter);
 app.use('/api/super-admin/assignments', assignmentsRouter);
 app.use('/api/super-admin/reports', reportsRouter);
 app.use('/api/super-admin/dashboard', dashboardRouter);
+app.use('/api/super-admin/database', databaseRouter);
 
 // Super admin attendance monitoring (read-only session management)
 app.use('/api/super-admin/attendance', attendanceRouter);

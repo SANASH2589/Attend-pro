@@ -26,6 +26,13 @@ export const classesApi = {
     return request(`/api/super-admin/classes/${id}`, {
       method: 'DELETE'
     });
+  },
+
+  async assignRange(id: string, ranges: string, preview: boolean = false): Promise<any> {
+    return request(`/api/super-admin/classes/${id}/assign-range`, {
+      method: 'POST',
+      body: JSON.stringify({ ranges, preview })
+    });
   }
 };
 

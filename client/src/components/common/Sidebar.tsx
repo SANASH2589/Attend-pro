@@ -9,7 +9,8 @@ import {
   FileSpreadsheet, 
   History, 
   Link2,
-  LogOut 
+  LogOut,
+  Database
 } from 'lucide-react';
 import useAuth from '../../hooks/useAuth';
 import Logo from './Logo';
@@ -54,6 +55,11 @@ export default function Sidebar({ onClose, className = "" }: SidebarProps) {
           label: "Assignments",
           path: "/super-admin/assignments",
           icon: Link2
+        },
+        {
+          label: "Database",
+          path: "/super-admin/database",
+          icon: Database
         },
         {
           label: "Reports",
@@ -117,7 +123,7 @@ export default function Sidebar({ onClose, className = "" }: SidebarProps) {
       <div className="flex flex-col flex-1">
         {/* Brand/Logo Header */}
         <div className="h-16 px-6 border-b border-slate-800/80 flex items-center shrink-0">
-          <Logo className="invert brightness-0" />
+          <Logo variant="dark" />
         </div>
 
         {/* Navigation Section */}

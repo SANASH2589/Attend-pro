@@ -325,4 +325,221 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+interface ParseResult {
+  validRollNumbers: string[];
+  invalidTokens: string[];
+}
+
+/**
+ * Parses and expands a comma-separated string containing roll numbers and ranges.
+ */
+function parseRollNumberInput(input: string): ParseResult {
+  const validRolls = new Set<string>();
+  const invalidTokens: string[] = [];
+
+  if (!input || !input.trim()) {
+    return { validRollNumbers: [], invalidTokens: [] };
+  }
+
+  // Split by comma
+  const tokens = input.split(',');
+
+  for (let token of tokens) {
+    token = token.trim();
+    if (!token) continue; // Skip empty tokens
+
+    // Check if it's a range
+    if (token.includes('-')) {
+      const parts = token.split('-');
+      if (parts.length !== 2) {
+        invalidTokens.push(token);
+        continue;
+      }
+
+      const startRaw = parts[0].trim().toUpperCase();
+      const endRaw = parts[1].trim().toUpperCase();
+
+      if (!startRaw || !endRaw) {
+        invalidTokens.push(token);
+        continue;
+      }
+
+      // Match alphabetical prefix and numeric suffix
+      const matchRegex = /^([A-Z]+)(\d+)$/;
+      const startMatch = startRaw.match(matchRegex);
+      const endMatch = endRaw.match(matchRegex);
+
+      if (!startMatch || !endMatch) {
+        invalidTokens.push(token);
+        continue;
+      }
+
+      const [, startPrefix, startNumStr] = startMatch;
+      const [, endPrefix, endNumStr] = endMatch;
+
+      if (startPrefix !== endPrefix) {
+        invalidTokens.push(token);
+        continue;
+      }
+
+      const startNum = parseInt(startNumStr, 10);
+      const endNum = parseInt(endNumStr, 10);
+
+      if (startNum > endNum) {
+        invalidTokens.push(token);
+        continue;
+      }
+
+      const numLength = startNumStr.length;
+      for (let i = startNum; i <= endNum; i++) {
+        const paddedNum = String(i).padStart(numLength, '0');
+        validRolls.add(`${startPrefix}${paddedNum}`);
+      }
+    } else {
+      // Individual roll number
+      const rollUpper = token.toUpperCase();
+      const matchRegex = /^([A-Z]+)(\d+)$/;
+      if (!rollUpper.match(matchRegex)) {
+        invalidTokens.push(token);
+        continue;
+      }
+      validRolls.add(rollUpper);
+    }
+  }
+
+  return {
+    validRollNumbers: Array.from(validRolls),
+    invalidTokens
+  };
+}
+
+/**
+ * POST /api/super-admin/classes/:id/assign-range
+ * Preview or execute student assignment by roll number ranges.
+ */
+router.post('/:id/assign-range', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id: classId } = req.params;
+    const { ranges, preview } = req.body;
+
+    if (typeof ranges !== 'string') {
+      res.status(400).json({ message: 'Ranges must be a comma-separated string of roll numbers.' });
+      return;
+    }
+
+    // 1. Verify class exists
+    const { data: existingClass, error: classCheckError } = await supabaseAdmin
+      .from('classes')
+      .select('id')
+      .eq('id', classId)
+      .maybeSingle();
+
+    if (classCheckError || !existingClass) {
+      res.status(404).json({ message: 'Class section not found.' });
+      return;
+    }
+
+    // 2. Parse the roll number range string
+    const { validRollNumbers, invalidTokens } = parseRollNumberInput(ranges);
+
+    // If no valid roll numbers were parsed, and we have no invalid tokens, it's an empty input
+    if (validRollNumbers.length === 0 && invalidTokens.length === 0) {
+      res.status(400).json({ message: 'No roll numbers provided.' });
+      return;
+    }
+
+    // 3. Query all active students matching the valid roll numbers
+    let dbStudents: any[] = [];
+    if (validRollNumbers.length > 0) {
+      const { data: fetchedStudents, error: studentError } = await supabaseAdmin
+        .from('students')
+        .select('id, roll_number, is_active')
+        .in('roll_number', validRollNumbers)
+        .eq('is_active', true);
+
+      if (studentError) throw studentError;
+      dbStudents = fetchedStudents || [];
+    }
+
+    // Map database roll numbers to their profiles for easy lookup
+    const studentMap = new Map<string, { id: string; roll_number: string }>();
+    dbStudents.forEach(student => {
+      studentMap.set(student.roll_number.toUpperCase(), student);
+    });
+
+    // 4. Query student assignments for this class
+    const { data: existingAssignments, error: assignError } = await supabaseAdmin
+      .from('student_class_assignments')
+      .select('student_id')
+      .eq('class_id', classId);
+
+    if (assignError) throw assignError;
+
+    const assignedStudentIds = new Set((existingAssignments || []).map((a: { student_id: string }) => a.student_id));
+
+    // 5. Partition the parsed roll numbers into states
+    const assignedRolls: string[] = [];
+    const alreadyAssignedRolls: string[] = [];
+    const notFoundRolls: string[] = [];
+    const studentsToAssign: { id: string; roll_number: string }[] = [];
+
+    validRollNumbers.forEach(roll => {
+      const student = studentMap.get(roll);
+      if (!student) {
+        notFoundRolls.push(roll);
+      } else if (assignedStudentIds.has(student.id)) {
+        alreadyAssignedRolls.push(roll);
+      } else {
+        assignedRolls.push(roll);
+        studentsToAssign.push(student);
+      }
+    });
+
+    const isPreview = !!preview;
+
+    // 6. If not preview mode, perform the batch insert
+    if (!isPreview && studentsToAssign.length > 0) {
+      const insertRows = studentsToAssign.map(s => ({
+        student_id: s.id,
+        class_id: classId
+      }));
+
+      const { error: insertError } = await supabaseAdmin
+        .from('student_class_assignments')
+        .insert(insertRows);
+
+      if (insertError) throw insertError;
+    }
+
+    // 7. Calculate stats and return response
+    const requestedCount = validRollNumbers.length + invalidTokens.length;
+    const assignedCount = studentsToAssign.length;
+    const alreadyAssignedCount = alreadyAssignedRolls.length;
+    const invalidCount = invalidTokens.length;
+    const notFoundCount = notFoundRolls.length;
+
+    res.json({
+      success: true,
+      summary: {
+        requested: requestedCount,
+        assigned: assignedCount,
+        alreadyAssigned: alreadyAssignedCount,
+        invalid: invalidCount,
+        notFound: notFoundCount
+      },
+      details: {
+        assigned: assignedRolls,
+        alreadyAssigned: alreadyAssignedRolls,
+        invalid: invalidTokens,
+        notFound: notFoundRolls
+      }
+    });
+
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error in range-based student assignment:', message);
+    res.status(500).json({ message: 'Failed to process range-based student assignment.' });
+  }
+});
+
 export default router;

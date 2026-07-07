@@ -1,4 +1,4 @@
-import React from 'react';
+import React from 'react'; // Router Config
 import { Routes, Route, Navigate } from 'react-router-dom';
 
 // Layouts
@@ -23,6 +23,7 @@ import Students from '../pages/admin/Students';
 import Classes from '../pages/admin/Classes';
 import Assignments from '../pages/admin/Assignments';
 import AdminReports from '../pages/admin/Reports';
+import Database from '../pages/admin/Database';
 
 // Staff Pages
 import StaffDashboard from '../pages/staff/Dashboard';
@@ -64,6 +65,7 @@ export default function AppRoutes() {
             <Route path="classes" element={<Classes />} />
             <Route path="assignments" element={<Assignments />} />
             <Route path="reports" element={<AdminReports />} />
+            <Route path="database" element={<Database />} />
 
             {/* NO attendance page for super admin */}
           </Route>
