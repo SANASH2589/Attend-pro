@@ -8,6 +8,6 @@ export interface SmsResponse {
 export interface ISmsProvider {
   sendSMS(
     phoneNumber: string,
-    detail: string
+    message: string
   ): Promise<SmsResponse>;
 }

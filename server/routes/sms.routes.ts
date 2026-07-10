@@ -7,16 +7,20 @@ import { authMiddleware, requireRole } from '../middleware/auth';
 
 const router = Router();
 
-// Protected route
+// Protected test route — requires super_admin
+router.post(
+  '/test',
+  authMiddleware,
+  requireRole('super_admin'),
+  testSmsController
+);
+
+// Protected send route
 router.post(
   '/send',
   authMiddleware,
   requireRole('super_admin'),
   sendSmsController
 );
-
-// Temporary public route for local testing
-// TODO: restore auth after SMS confirmed working
-router.post('/test', testSmsController);
 
 export default router;

@@ -209,9 +209,25 @@ export default function AttendanceMonitoring() {
       setConfirmingAction(null);
       fetchSessionsList();
       fetchStats();
+
+      // Wait for SMS to process then show summary
+      setTimeout(async () => {
+        try {
+          const summary = await attendanceApi.getSmsSummary(sessionId);
+          if (summary && summary.total > 0) {
+            showToast(
+              `SMS Summary: ${summary.sent} sent · ${summary.failed} failed · ${summary.skipped} skipped`,
+              'success'
+            );
+          }
+        } catch (e) {
+          console.error('SMS summary fetch error:', e);
+        } finally {
+          setActionLoading(false);
+        }
+      }, 4000); // 4 second delay for SMS to complete
     } catch (err: any) {
       showToast(err.message || 'Failed to lock session.', 'error');
-    } finally {
       setActionLoading(false);
     }
   };

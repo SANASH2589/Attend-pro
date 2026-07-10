@@ -62,7 +62,7 @@ app.use('/api/staff/attendance', attendanceRouter);
 
 // ============================================================
 // SMS ROUTES — /api/sms/*
-// Protected by auth + super_admin role in the route file
+// /test is open for initial verification; /send requires super_admin
 // ============================================================
 app.use('/api/sms', smsRoutes);
 

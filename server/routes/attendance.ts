@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabase';
 import authMiddleware from '../middleware/auth';
 import { getStudentAttendanceStats, getClassAttendanceStats } from '../lib/attendanceStats';
-import { sendAbsenteeNotifications } from '../services/sms/smsOrchestrator';
+import { sendAttendanceNotifications } from '../services/sms/smsOrchestrator';
 import type { SessionState, SessionStatus, ClassConfig } from '../types';
 
 const router = express.Router();
@@ -496,11 +496,24 @@ router.post('/submit', staffOnly, async (req: Request, res: Response): Promise<v
     const totalStudents = activeStudentIds.length;
 
     // 4. Create attendance session — immediately locked to prevent edits
+    console.log('[DEBUG SUBMIT] Step 10 — Inserting attendance_sessions:', JSON.stringify({
+      class_id,
+      staff_id: req.user!.id,
+      created_by: req.user!.id,
+      session_date: todayStr,
+      session_type,
+      is_locked: true,
+      locked_at: now.toISOString(),
+      total_students: totalStudents,
+      total_absent: absent_student_ids.length,
+      submitted_at: now.toISOString()
+    }));
     const { data: session, error: sessErr } = await supabaseAdmin
       .from('attendance_sessions')
       .insert({
         class_id,
         staff_id: req.user!.id,
+        created_by: req.user!.id,
         session_date: todayStr,
         session_type,
         is_locked: true,
@@ -513,30 +526,46 @@ router.post('/submit', staffOnly, async (req: Request, res: Response): Promise<v
       .single();
 
     if (sessErr) {
+      console.error('[DEBUG SUBMIT] Step 10 FAILED — attendance_sessions INSERT error:', JSON.stringify({
+        code: (sessErr as any).code,
+        message: (sessErr as any).message,
+        details: (sessErr as any).details,
+        hint: (sessErr as any).hint
+      }));
       if ((sessErr as { code?: string }).code === '23505') { // UNIQUE check
         res.status(409).json({ message: 'Attendance already submitted for this session' });
         return;
       }
       throw new Error(formatDbError(sessErr, 'Failed to create attendance session.'));
     }
+    console.log('[DEBUG SUBMIT] Step 10 OK — session id:', session!.id);
 
     // 5. Bulk insert records
     const recordsToInsert = activeStudentIds.map((sid: string) => ({
       session_id: session!.id,
       student_id: sid,
-      status: absent_student_ids.includes(sid) ? 'absent' : 'present'
+      status: (absent_student_ids.includes(sid) ? 'absent' : 'present').toLowerCase(),
+      recorded_by: req.user!.id
     }));
 
     if (recordsToInsert.length > 0) {
+      console.log('[DEBUG SUBMIT] Step 11 — Inserting attendance_records:', JSON.stringify(recordsToInsert));
       const { error: insertErr } = await supabaseAdmin
         .from('attendance_records')
         .insert(recordsToInsert);
 
       if (insertErr) {
+        console.error('[DEBUG SUBMIT] Step 11 FAILED — attendance_records INSERT error:', JSON.stringify({
+          code: (insertErr as any).code,
+          message: (insertErr as any).message,
+          details: (insertErr as any).details,
+          hint: (insertErr as any).hint
+        }));
         // Rollback session insert if record insertions fail
         await supabaseAdmin.from('attendance_sessions').delete().eq('id', session!.id);
         throw new Error(formatDbError(insertErr, 'Failed to save attendance records.'));
       }
+      console.log('[DEBUG SUBMIT] Step 11 OK — records inserted:', recordsToInsert.length);
     }
 
     // Step E: Recalculate attendance statistics
@@ -548,6 +577,23 @@ router.post('/submit', staffOnly, async (req: Request, res: Response): Promise<v
       const statsMessage = statsErr instanceof Error ? statsErr.message : 'Unknown error';
       console.error('[Post-Submit Stats] Recalculation error:', statsMessage);
     }
+
+    // Step F: Fire and forget SMS dispatch for locked session in the background
+    sendAttendanceNotifications(session!.id)
+      .then((summary) => {
+        console.log(
+          `[Attendance Submit] Lock SMS complete — ` +
+          `Sent: ${summary.sent} ` +
+          `Failed: ${summary.failed} ` +
+          `Skipped: ${summary.skipped}`
+        );
+      })
+      .catch((err) => {
+        console.error(
+          '[Attendance Submit] SMS notification error:',
+          err.message
+        );
+      });
 
     res.status(201).json({
       session_id: session!.id,
@@ -717,28 +763,92 @@ router.put('/session/:sessionId/lock', superAdminOnly, async (req: Request, res:
 
     if (error) throw error;
 
-    // Fire and forget — send SMS notifications for absent students
-    sendAbsenteeNotifications(sessionId as string)
-      .then(result => {
+    // Fire and forget — non-blocking
+    // Attendance lock completes instantly
+    // SMS runs in background
+    sendAttendanceNotifications(sessionId as string)
+      .then((summary) => {
         console.log(
-          '[Attendance] SMS notifications result:',
-          result
+          `[Attendance] Lock SMS complete — ` +
+          `Sent: ${summary.sent} ` +
+          `Failed: ${summary.failed} ` +
+          `Skipped: ${summary.skipped}`
         );
       })
-      .catch(err => {
+      .catch((err) => {
         console.error(
           '[Attendance] SMS notification error:',
           err.message
         );
       });
 
-    res.json(updated);
+    // Return lock success immediately
+    // Do NOT await the SMS call
+    res.status(200).json({
+      success:    true,
+      message:    'Session locked successfully.',
+      session_id: sessionId,
+      locked_at:  new Date().toISOString()
+    });
+    return;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('Error locking session:', message);
     res.status(500).json({ message: 'Failed to lock session logs.' });
   }
 });
+
+/**
+ * GET /api/v1/attendance/session/:sessionId/sms-summary
+ * Fetches log details and summary metrics of sent SMS for a locked session.
+ */
+router.get(
+  '/session/:sessionId/sms-summary',
+  superAdminOnly,
+  async (req: Request, res: Response): Promise<void> => {
+    const { sessionId } = req.params;
+
+    const { data: logs, error } = await supabaseAdmin
+      .from('sms_logs')
+      .select(`
+        id,
+        phone_number,
+        message_body,
+        status,
+        gateway_ref,
+        sent_at,
+        students (
+          full_name,
+          roll_number
+        )
+      `)
+      .eq('session_id', sessionId)
+      .order('sent_at', { ascending: false });
+
+    if (error) {
+      res.status(500).json({
+        message: 'Failed to fetch SMS summary'
+      });
+      return;
+    }
+
+    const summary = {
+      total:     logs?.length || 0,
+      sent:      logs?.filter(
+                   l => l.status?.toLowerCase() === 'sent'
+                 ).length || 0,
+      failed:    logs?.filter(
+                   l => l.status?.toLowerCase() === 'failed'
+                 ).length || 0,
+      skipped:   logs?.filter(
+                   l => !l.phone_number
+                 ).length || 0,
+      logs:      logs || []
+    };
+
+    res.status(200).json(summary);
+  }
+);
 
 /**
  * PUT /api/v1/attendance/session/:sessionId/unlock

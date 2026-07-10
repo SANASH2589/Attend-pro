@@ -1,8 +1,8 @@
 import { ISmsProvider, SmsResponse } from './providers/ISmsProvider';
-import { TextplateProvider } from './providers/textplate.provider';
+import { TwilioProvider } from './providers/twilio.provider';
 import { SimulationProvider } from './providers/simulation.provider';
 
-// ── Phone validation ──────────────────────────
+// Phone number validation
 function validatePhone(phone: string): {
   valid:      boolean;
   normalized: string;
@@ -10,8 +10,8 @@ function validatePhone(phone: string): {
 } {
   const cleaned = phone.replace(/[\s\-\(\)]/g, '');
 
-  // E.164 with +91
-  if (/^\+91[6-9]\d{9}$/.test(cleaned)) {
+  // Already E.164
+  if (/^\+\d{10,15}$/.test(cleaned)) {
     return { valid: true, normalized: cleaned };
   }
 
@@ -23,75 +23,50 @@ function validatePhone(phone: string): {
     };
   }
 
-  // Other international E.164
-  if (/^\+\d{8,15}$/.test(cleaned)) {
-    return { valid: true, normalized: cleaned };
-  }
-
   return {
     valid:      false,
     normalized: cleaned,
-    error:      `Invalid phone: "${phone}". ` +
-                `Use 10-digit Indian number ` +
-                `or E.164 format (+91XXXXXXXXXX).`
+    error:
+      `Invalid phone number: "${phone}". ` +
+      `Use 10-digit Indian number or ` +
+      `E.164 format (+91XXXXXXXXXX).`
   };
 }
 
-// ── Provider factory ──────────────────────────
+// Provider factory
 function createProvider(): ISmsProvider {
-  const enabled  = process.env.SMS_ENABLED === 'true';
-  const provider = (
-    process.env.SMS_PROVIDER || 'textplate'
-  ).toLowerCase();
+  const enabled = process.env.SMS_ENABLED === 'true';
 
   if (!enabled) {
     console.log('[SMS] Mode: Simulation');
     return new SimulationProvider();
   }
 
-  switch (provider) {
-    case 'textplate':
-      console.log('[SMS] Provider: Textplate');
-      return new TextplateProvider();
-    // Future providers:
-    // case 'msg91':    return new Msg91Provider();
-    // case 'fast2sms': return new Fast2SmsProvider();
-    default:
-      console.warn(
-        `[SMS] Unknown provider "${provider}" ` +
-        `— falling back to simulation`
-      );
-      return new SimulationProvider();
-  }
+  console.log('[SMS] Mode: Live — Provider: Twilio');
+  return new TwilioProvider();
 }
 
-// Singleton — created once on server startup
+// Singleton
 const smsProvider: ISmsProvider = createProvider();
-
-// ── Public API ────────────────────────────────
 
 // Core send function
 export async function sendSMS(
   phoneNumber: string,
-  detail: string
+  message: string
 ): Promise<SmsResponse> {
   const check = validatePhone(phoneNumber);
 
   if (!check.valid) {
-    console.error('[SMS] Invalid phone:', check.error);
+    console.error('[SMS] Validation failed:', check.error);
     return { success: false, error: check.error };
   }
 
-  console.log(
-    '[SMS] Sending to:', check.normalized,
-    '| Detail:', detail.substring(0, 60)
-  );
+  console.log('[SMS] Sending to:', check.normalized);
 
-  return smsProvider.sendSMS(check.normalized, detail);
+  return smsProvider.sendSMS(check.normalized, message);
 }
 
-// Attendance-specific wrapper
-// Called when a student is marked absent
+// Attendance-specific message builder
 export async function sendAbsentSMS(
   parentPhone:  string,
   studentName:  string,
@@ -99,10 +74,11 @@ export async function sendAbsentSMS(
   sessionDate:  string,
   className:    string
 ): Promise<SmsResponse> {
-  const detail =
-    `${studentName} was marked ABSENT for ` +
-    `${sessionType} session on ${sessionDate} ` +
-    `at ${className}.`;
+  const message =
+    `Attend-Pro Alert: Your ward ${studentName} ` +
+    `was marked ABSENT for the ${sessionType} ` +
+    `session on ${sessionDate} at ${className}. ` +
+    `For queries contact the college.`;
 
-  return sendSMS(parentPhone, detail);
+  return sendSMS(parentPhone, message);
 }

@@ -1,16 +1,38 @@
 import { supabaseAdmin } from '../../lib/supabase';
-import { sendAbsentSMS } from './sms.service';
+import { sendSMS } from './sms.service';
 
-export async function sendAbsenteeNotifications(
-  sessionId: string
-): Promise<{
-  sent: number;
-  failed: number;
+export interface SmsNotificationSummary {
+  total:   number;
+  sent:    number;
+  failed:  number;
   skipped: number;
-}> {
-  const results = { sent: 0, failed: 0, skipped: 0 };
+  results: SmsNotificationResult[];
+}
 
-  // ── 1. Fetch session + class info ─────────────
+export interface SmsNotificationResult {
+  studentId:   string;
+  studentName: string;
+  phone:       string | null;
+  status:      'present' | 'absent';
+  smsSent:     boolean;
+  smsStatus:   'sent' | 'failed' | 'skipped';
+  error?:      string;
+  messageId?:  string;
+}
+
+export async function sendAttendanceNotifications(
+  sessionId: string
+): Promise<SmsNotificationSummary> {
+
+  const summary: SmsNotificationSummary = {
+    total:   0,
+    sent:    0,
+    failed:  0,
+    skipped: 0,
+    results: []
+  };
+
+  // ── 1. Fetch session + class details ──────────
   const { data: session, error: sessionError } =
     await supabaseAdmin
       .from('attendance_sessions')
@@ -25,155 +47,222 @@ export async function sendAbsenteeNotifications(
 
   if (sessionError || !session) {
     console.error(
-      '[SMS Orchestrator] Session not found:',
-      sessionId, sessionError?.message
+      '[SMS] Session not found:', sessionId
     );
-    return results;
+    return summary;
   }
 
-  const className   = (session.classes as any)?.name
-                      || 'class';
-  const sessionDate = session.session_date;
+  const className   = 
+    (session.classes as any)?.name || 'class';
   const sessionType = session.session_type;
+  const sessionDate = new Date(session.session_date)
+    .toLocaleDateString('en-IN', {
+      day:   '2-digit',
+      month: 'short',
+      year:  'numeric'
+    });
 
-  // ── 2. Fetch all absent students ─────────────
-  const { data: absentRecords, error: recordError } =
+  // ── 2. Fetch ALL attendance records ───────────
+  // Both present and absent students
+  const { data: records, error: recordError } =
     await supabaseAdmin
       .from('attendance_records')
       .select(`
         student_id,
+        status,
         students (
           id,
           full_name,
           parent_phone
         )
       `)
-      .eq('session_id', sessionId)
-      .eq('status', 'absent');
+      .eq('session_id', sessionId);
 
-  if (recordError) {
+  if (recordError || !records?.length) {
     console.error(
-      '[SMS Orchestrator] Failed to fetch records:',
-      recordError.message
+      '[SMS] No records found for session:',
+      sessionId, recordError?.message
     );
-    return results;
+    return summary;
   }
 
-  if (!absentRecords || absentRecords.length === 0) {
-    console.log(
-      '[SMS Orchestrator] No absent students ' +
-      'for session:', sessionId
-    );
-    return results;
-  }
+  summary.total = records.length;
 
   console.log(
-    `[SMS Orchestrator] Processing ${absentRecords.length}` +
-    ` absent students for session ${sessionId}`
+    `[SMS] Processing ${records.length} students ` +
+    `for session ${sessionId}`
   );
 
-  // ── 3. Send SMS to each absent student ────────
-  for (const record of absentRecords) {
-    const student = record.students as any;
+  // ── 3. Send SMS to each student's parent ──────
+  for (const record of records) {
+    const student    = record.students as any;
+    const attendance = record.status as 
+                       'present' | 'absent';
 
-    // Guard: no student data
+    // Guard: missing student data
     if (!student) {
-      console.error(
-        '[SMS Orchestrator] Missing student data ' +
-        'for record, student_id:', record.student_id
-      );
-      results.skipped++;
+      summary.skipped++;
+      summary.results.push({
+        studentId:   record.student_id,
+        studentName: 'Unknown',
+        phone:       null,
+        status:      attendance,
+        smsSent:     false,
+        smsStatus:   'skipped',
+        error:       'Student data not found'
+      });
       continue;
     }
 
-    // Guard: no parent phone
-    if (!student.parent_phone ||
-         student.parent_phone.trim() === '') {
+    // Guard: missing or empty phone number
+    if (!student.parent_phone?.trim()) {
       console.warn(
-        '[SMS Orchestrator] No parent phone for:',
+        '[SMS] No parent phone for:',
         student.full_name, '— skipping'
       );
 
-      // Log as skipped in sms_logs
-      await supabaseAdmin.from('sms_logs').insert({
+      summary.skipped++;
+      summary.results.push({
+        studentId:   student.id,
+        studentName: student.full_name,
+        phone:       null,
+        status:      attendance,
+        smsSent:     false,
+        smsStatus:   'skipped',
+        error:       'No parent phone number'
+      });
+
+      // Log skipped to sms_logs
+      const { error: logErr } = await supabaseAdmin.from('sms_logs').insert({
         session_id:   sessionId,
         student_id:   student.id,
         phone_number: null,
         message_body: null,
         gateway_ref:  null,
-        status:       'failed',
+        status:       'FAILED',
         retry_count:  0,
         sent_at:      new Date().toISOString()
       });
+      if (logErr) {
+        console.error('[SMS] sms_logs insert error:', logErr.message);
+      }
 
-      results.skipped++;
       continue;
     }
 
-    // ── Send the SMS ────────────────────────────
-    const detail =
-      `ward ${student.full_name} was marked ABSENT ` +
-      `for the ${sessionType} session on ` +
-      `${new Date(sessionDate).toLocaleDateString(
-        'en-IN', {
-          day:   '2-digit',
-          month: 'short',
-          year:  'numeric'
-        }
-      )} at ${className}`;
+    // Build status-specific message
+    const message = attendance === 'absent'
+      ? `Attend-Pro: Your ward ${student.full_name} ` +
+        `was marked ABSENT for the ${sessionType} ` +
+        `session on ${sessionDate} at ${className}. ` +
+        `Please contact the college for details.`
+      : `Attend-Pro: Your ward ${student.full_name} ` +
+        `is PRESENT for the ${sessionType} session ` +
+        `on ${sessionDate} at ${className}.`;
 
+    // Send SMS via Twilio
     try {
-      const smsResult = await sendAbsentSMS(
+      const smsResult = await sendSMS(
         student.parent_phone,
-        student.full_name,
-        sessionType,
-        sessionDate,
-        className
+        message
       );
 
-      // Write to sms_logs regardless of outcome
-      await supabaseAdmin.from('sms_logs').insert({
+      // Write to sms_logs
+      const { error: logErr } = await supabaseAdmin.from('sms_logs').insert({
         session_id:   sessionId,
         student_id:   student.id,
         phone_number: student.parent_phone,
-        message_body: detail,
+        message_body: message,
         gateway_ref:  smsResult.messageId || null,
-        status:       smsResult.success
-                      ? 'sent' : 'failed',
+        status:       smsResult.success 
+                      ? 'SENT' : 'FAILED',
         retry_count:  0,
         sent_at:      new Date().toISOString()
       });
+      if (logErr) {
+        console.error('[SMS] sms_logs insert error:', logErr.message);
+      }
+
+      const result: SmsNotificationResult = {
+        studentId:   student.id,
+        studentName: student.full_name,
+        phone:       student.parent_phone,
+        status:      attendance,
+        smsSent:     smsResult.success,
+        smsStatus:   smsResult.success 
+                     ? 'sent' : 'failed',
+        messageId:   smsResult.messageId,
+        error:       smsResult.error
+      };
+
+      summary.results.push(result);
 
       if (smsResult.success) {
         console.log(
-          '[SMS Orchestrator] ✅ Sent to',
-          student.full_name,
-          student.parent_phone
+          `[SMS] ✅ ${attendance.toUpperCase()} ` +
+          `SMS sent to ${student.full_name} ` +
+          `(${student.parent_phone})`
         );
-        results.sent++;
+        summary.sent++;
       } else {
         console.error(
-          '[SMS Orchestrator] ❌ Failed for',
-          student.full_name, ':', smsResult.error
+          `[SMS] ❌ Failed for ${student.full_name}:`,
+          smsResult.error
         );
-        results.failed++;
+        summary.failed++;
       }
 
     } catch (err: any) {
       console.error(
-        '[SMS Orchestrator] Exception for',
+        '[SMS] Exception for',
         student.full_name, ':', err.message
       );
-      results.failed++;
+
+      // Write exception-level failures to sms_logs so they appear in summaries
+      const { error: catchLogErr } = await supabaseAdmin.from('sms_logs').insert({
+        session_id:   sessionId,
+        student_id:   student.id,
+        phone_number: student.parent_phone || null,
+        message_body: message,
+        gateway_ref:  null,
+        status:       'FAILED',
+        retry_count:  0,
+        sent_at:      new Date().toISOString()
+      });
+      if (catchLogErr) {
+        console.error('[SMS] sms_logs insert error (catch):', catchLogErr.message);
+      }
+
+      summary.failed++;
+      summary.results.push({
+        studentId:   student.id,
+        studentName: student.full_name,
+        phone:       student.parent_phone,
+        status:      attendance,
+        smsSent:     false,
+        smsStatus:   'failed',
+        error:       err.message
+      });
     }
   }
 
+  // ── 4. Log final summary ───────────────────────
   console.log(
-    '[SMS Orchestrator] Done —',
-    `Sent: ${results.sent}`,
-    `Failed: ${results.failed}`,
-    `Skipped: ${results.skipped}`
+    '\n[SMS] ══════════════════════════════'
+  );
+  console.log('[SMS] Notification Summary:');
+  console.log(`[SMS]   Total students : ${summary.total}`);
+  console.log(`[SMS]   SMS sent       : ${summary.sent}`);
+  console.log(`[SMS]   SMS failed     : ${summary.failed}`);
+  console.log(`[SMS]   Skipped        : ${summary.skipped}`);
+  console.log(
+    '[SMS] ══════════════════════════════\n'
   );
 
-  return results;
+  return summary;
 }
+
+// Keep backward compatibility
+// Old name still works if referenced anywhere
+export const sendAbsenteeNotifications = 
+  sendAttendanceNotifications;

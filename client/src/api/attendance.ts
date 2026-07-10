@@ -186,6 +186,15 @@ export const attendanceApi = {
     return request(url, {
       method: 'GET'
     });
+  },
+
+  /**
+   * Fetch SMS summary for a locked session
+   */
+  async getSmsSummary(sessionId: string): Promise<any> {
+    return request(`/api/super-admin/attendance/session/${sessionId}/sms-summary`, {
+      method: 'GET'
+    });
   }
 };
 

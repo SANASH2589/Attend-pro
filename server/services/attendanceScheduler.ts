@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { supabaseAdmin } from '../lib/supabase';
-import { sendAbsenteeNotifications } from './sms/smsOrchestrator';
+import { sendAttendanceNotifications } from './sms/smsOrchestrator';
 
 /**
  * Helper to convert "HH:MM:SS" or "HH:MM" to minutes
@@ -84,12 +84,22 @@ async function runAutoLock(): Promise<void> {
                   console.error(`[Scheduler] Failed to insert audit log for session ${morningSession.id}:`, auditErr.message);
                 }
 
-                // Send SMS notifications for absent students
-                sendAbsenteeNotifications(morningSession.id)
-                  .catch(err => console.error(
-                    '[Scheduler] SMS error for session',
-                    morningSession.id, ':', err.message
-                  ));
+                // Send SMS notifications for present and absent students
+                sendAttendanceNotifications(morningSession.id)
+                  .then(summary => {
+                    console.log(
+                      `[Cron] SMS done for session ${morningSession.id} —`,
+                      `Sent: ${summary.sent}`,
+                      `Failed: ${summary.failed}`
+                    );
+                  })
+                  .catch(err => {
+                    console.error(
+                      '[Cron] SMS error for session',
+                      morningSession.id, ':', err.message
+                    );
+                  });
+
               }
             }
           }
@@ -130,12 +140,22 @@ async function runAutoLock(): Promise<void> {
                   console.error(`[Scheduler] Failed to insert audit log for session ${eveningSession.id}:`, auditErr.message);
                 }
 
-                // Send SMS notifications for absent students
-                sendAbsenteeNotifications(eveningSession.id)
-                  .catch(err => console.error(
-                    '[Scheduler] SMS error for session',
-                    eveningSession.id, ':', err.message
-                  ));
+                // Send SMS notifications for present and absent students
+                sendAttendanceNotifications(eveningSession.id)
+                  .then(summary => {
+                    console.log(
+                      `[Cron] SMS done for session ${eveningSession.id} —`,
+                      `Sent: ${summary.sent}`,
+                      `Failed: ${summary.failed}`
+                    );
+                  })
+                  .catch(err => {
+                    console.error(
+                      '[Cron] SMS error for session',
+                      eveningSession.id, ':', err.message
+                    );
+                  });
+
               }
             }
           }

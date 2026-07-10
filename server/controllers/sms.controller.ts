@@ -3,8 +3,8 @@ import { sendSMS } from '../services/sms/sms.service';
 import { z } from 'zod';
 
 const sendSchema = z.object({
-  phone:  z.string().min(10).max(15),
-  detail: z.string().min(1).max(500)
+  phone:   z.string().min(10).max(15),
+  message: z.string().min(1).max(500)
 });
 
 const testSchema = z.object({
@@ -29,22 +29,17 @@ export async function sendSmsController(
 
   const result = await sendSMS(
     parsed.data.phone,
-    parsed.data.detail
+    parsed.data.message
   );
 
-  if (!result.success) {
-    res.status(502).json({
-      success: false,
-      message: 'SMS delivery failed',
-      error:   result.error
-    });
-    return;
-  }
-
-  res.status(200).json({
-    success: true,
-    message: 'SMS sent successfully.'
-  });
+  res.status(result.success ? 200 : 502).json(
+    result.success
+      ? { success: true,
+          message: 'SMS sent successfully.' }
+      : { success: false,
+          message: 'SMS delivery failed',
+          error:   result.error }
+  );
 }
 
 // POST /api/sms/test
@@ -64,17 +59,13 @@ export async function testSmsController(
 
   const result = await sendSMS(
     parsed.data.phone,
-    'SMS integration is working successfully.'
+    'Attend-Pro: SMS integration is working successfully.'
   );
 
   res.status(result.success ? 200 : 502).json({
-    success:          result.success,
-    provider:         process.env.SMS_PROVIDER
-                      || 'textplate',
-    creditsRemaining: (result.raw as any)
-                      ?.credits_remaining ?? 'N/A',
-    response:         result.raw,
-    error:            result.success
-                      ? undefined : result.error
+    success:  result.success,
+    provider: 'twilio',
+    response: result.raw,
+    error:    result.success ? undefined : result.error
   });
 }

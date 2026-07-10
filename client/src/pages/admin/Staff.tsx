@@ -112,6 +112,19 @@ export default function Staff() {
     }
   };
 
+  const handleReactivate = async (id: string, name: string) => {
+    setActionLoading(true);
+    try {
+      await staffApi.update(id, { is_active: true } as any);
+      showToast(`Account for "${name}" has been reactivated.`, 'success');
+      fetchStaff();
+    } catch (err: any) {
+      showToast(err.message || 'Reactivation failed.', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const filteredStaff = staffList.filter((item) => {
     const query = searchQuery.toLowerCase();
     const nameMatch = (item.full_name || '').toLowerCase().includes(query);
@@ -158,7 +171,19 @@ export default function Staff() {
       label: 'Actions',
       key: 'actions',
       render: (row) => {
-        if (!row.is_active) return <span className="text-[11px] text-slate-300 font-semibold italic">No actions</span>;
+        if (!row.is_active) {
+          return (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleReactivate(row.id, row.full_name)}
+              disabled={actionLoading}
+              className="py-1 px-2.5 text-[11px] text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 font-semibold"
+            >
+              Reactivate
+            </Button>
+          );
+        }
 
         if (confirmingDeactivateId === row.id) {
           return (
