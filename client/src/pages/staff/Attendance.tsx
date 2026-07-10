@@ -1,14 +1,14 @@
-import { useState, useEffect, useRef } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import attendanceApi from '../../api/attendance';
-import classesApi from '../../api/classes';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Badge from '../../components/ui/Badge';
+import Table, { TableColumn } from '../../components/ui/Table';
 import { useToast } from '../../context/ToastContext';
 import { 
-  Clock, 
-  CheckCircle, 
+  Clock,
+  CheckCircle,
   AlertCircle, 
   Info, 
   CheckCircle2, 
@@ -16,26 +16,41 @@ import {
   Search,
   Loader2,
   ChevronLeft,
-  AlertTriangle
+  AlertTriangle,
+  ArrowRight,
+  School,
+  Sparkles,
+  ClipboardCheck,
+  Users,
+  CalendarDays
 } from 'lucide-react';
 import { Class as ClassType } from '../../types/class';
 import { Student as StudentType } from '../../types/student';
-import { SessionStatus } from '../../types/attendance';
+import { ClassSessionStatus, SessionStatus } from '../../types/attendance';
+
+interface StaffAttendanceClass extends ClassType {
+  sessions: {
+    morning: SessionStatus;
+    evening: SessionStatus;
+  };
+}
 
 /**
  * Attendance-taking Page for staff members.
- * Implements schedule gating, CSS grid selection states, navigation warning locks, and VerifyModal checks.
+ * Handles the attendance hub, class roster workspace, confirmation lock, and session state gating.
  */
 export default function Attendance() {
   const { classId } = useParams<{ classId: string }>();
   const [searchParams] = useSearchParams();
-  const sessionType = searchParams.get('session') === 'evening' ? 'evening' : 'morning';
+  const requestedSessionType = searchParams.get('session');
+  const [activeSessionType, setActiveSessionType] = useState<'morning' | 'evening'>(requestedSessionType === 'evening' ? 'evening' : 'morning');
   const navigate = useNavigate();
   const { showToast } = useToast();
 
   // Data states
+  const [assignedClasses, setAssignedClasses] = useState<StaffAttendanceClass[]>([]);
   const [classDetail, setClassDetail] = useState<ClassType | null>(null);
-  const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<ClassSessionStatus | null>(null);
   const [students, setStudents] = useState<StudentType[]>([]);
   const [absentIds, setAbsentIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -51,16 +66,27 @@ export default function Attendance() {
   
   // Modal state
   const [isVerifyModalOpen, setIsVerifyModalOpen] = useState<boolean>(false);
+  const [hasSubmitted, setHasSubmitted] = useState<boolean>(false);
 
   // Tracks if the user has interacted/taken attendance
   const [isDirty, setIsDirty] = useState<boolean>(false);
 
   const countdownIntervalRef = useRef<any>(null);
 
+  const currentClass = useMemo(
+    () => assignedClasses.find((item) => item.id === classId) ?? classDetail,
+    [assignedClasses, classDetail, classId]
+  );
+  const effectiveSessionType = activeSessionType;
+  const currentSessionInfo = sessionStatus ? sessionStatus[activeSessionType] : null;
+  const status = currentSessionInfo?.status;
+  const isLockedView = hasSubmitted || currentSessionInfo?.status === 'locked' || currentSessionInfo?.is_submitted;
+  const canEditRoster = Boolean(classId && currentSessionInfo?.status === 'open' && !isLockedView);
+
   // Browser-native beforeunload warning handler
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isDirty) {
+      if (isDirty && !hasSubmitted) {
         e.preventDefault();
         e.returnValue = 'You have unsaved attendance. Leave anyway?';
         return e.returnValue;
@@ -68,29 +94,58 @@ export default function Attendance() {
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [isDirty]);
+  }, [hasSubmitted, isDirty]);
 
   const loadData = async () => {
-    if (!classId) return;
+    setHasSubmitted(false);
     setLoading(true);
     setError('');
     try {
-      // 1. Fetch class details
-      const classesData = await classesApi.getAll();
-      const currentClass = classesData.find(c => c.id === classId);
-      if (!currentClass) {
-        throw new Error('Class section not found.');
+      const classesData = (await attendanceApi.getMyClasses()) as StaffAttendanceClass[];
+      setAssignedClasses(classesData || []);
+
+      if (!classId) {
+        setClassDetail(null);
+        setSessionStatus(null);
+        setStudents([]);
+        setAbsentIds([]);
+        setSearchQuery('');
+        return;
       }
-      setClassDetail(currentClass);
 
-      // 2. Fetch session status
+      const selectedClass = (classesData || []).find((item) => item.id === classId);
+      if (!selectedClass) {
+        throw new Error('Class section not found in your assigned workspace.');
+      }
+
+      setClassDetail(selectedClass);
+
       const statusData = await attendanceApi.getSessionStatus(classId);
-      const currentStatus = statusData[sessionType];
-      setSessionStatus(currentStatus);
+      const sessionToLoad: 'morning' | 'evening' = (() => {
+        if (requestedSessionType === 'morning' || requestedSessionType === 'evening') {
+          const requestedStatus = statusData[requestedSessionType];
 
-      // 3. Fetch students
+          if (requestedStatus.status === 'open') {
+            return requestedSessionType;
+          }
+        }
+
+        if (selectedClass.batch_type === 'morning') return 'morning';
+        if (selectedClass.batch_type === 'evening') return 'evening';
+
+        if (statusData.evening.status === 'open') return 'evening';
+        if (statusData.morning.status === 'open') return 'morning';
+        if (requestedSessionType === 'evening' || requestedSessionType === 'morning') return requestedSessionType as 'morning' | 'evening';
+        return 'morning';
+      })();
+
+      setActiveSessionType(sessionToLoad);
+      setSessionStatus(statusData);
+
       const studentsData = await attendanceApi.getClassStudents(classId);
       setStudents(studentsData || []);
+      setAbsentIds([]);
+      setSearchQuery('');
     } catch (err: any) {
       setError(err.message || 'Failed to load attendance configurations.');
     } finally {
@@ -100,22 +155,22 @@ export default function Attendance() {
 
   useEffect(() => {
     loadData();
-  }, [classId, sessionType]);
+  }, [classId, requestedSessionType]);
 
   // Timers and countdown management
   useEffect(() => {
-    if (!sessionStatus || loading) return;
+    if (!currentSessionInfo || loading) return;
 
     const calculateTimes = () => {
       const now = new Date();
       const todayStr = now.toISOString().split('T')[0];
 
-      if (sessionStatus.status === 'not_yet_open' && sessionStatus.opens_at) {
-        const opensAtDate = new Date(`${todayStr}T${sessionStatus.opens_at}:00`);
+      if (currentSessionInfo.status === 'not_yet_open' && currentSessionInfo.opens_at) {
+        const opensAtDate = new Date(`${todayStr}T${currentSessionInfo.opens_at}:00`);
         const diff = opensAtDate.getTime() - now.getTime();
         setTimeToOpen(Math.max(0, diff));
-      } else if (sessionStatus.status === 'open' && sessionStatus.locks_at) {
-        const locksAtDate = new Date(`${todayStr}T${sessionStatus.locks_at}:00`);
+      } else if (currentSessionInfo.status === 'open' && currentSessionInfo.locks_at) {
+        const locksAtDate = new Date(`${todayStr}T${currentSessionInfo.locks_at}:00`);
         const diff = locksAtDate.getTime() - now.getTime();
         setTimeRemaining(Math.max(0, diff));
       }
@@ -127,7 +182,7 @@ export default function Attendance() {
     return () => {
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
     };
-  }, [sessionStatus, loading]);
+  }, [currentSessionInfo, loading]);
 
   const formatCountdown = (diffMs: number) => {
     if (diffMs <= 0) return '0s';
@@ -144,6 +199,7 @@ export default function Attendance() {
   };
 
   const handleStudentClick = (studentId: string) => {
+    if (!canEditRoster) return;
     setIsDirty(true);
     setAbsentIds(prev => {
       if (prev.includes(studentId)) {
@@ -169,14 +225,24 @@ export default function Attendance() {
     try {
       const result = await attendanceApi.submitAttendance({
         class_id: classId,
-        session_type: sessionType,
+        session_type: effectiveSessionType,
         absent_student_ids: absentIds
       });
 
       showToast(`Attendance submitted for ${result.total_students} students successfully!`, 'success');
       setIsDirty(false); // Clear dirty lock
       setIsVerifyModalOpen(false);
-      navigate('/staff/history');
+      setHasSubmitted(true);
+      setSessionStatus((prev) => prev ? ({
+        ...prev,
+        [effectiveSessionType]: {
+          ...prev[effectiveSessionType],
+          status: 'locked',
+          is_submitted: true,
+          is_locked: true,
+          submitted_at: new Date().toISOString()
+        }
+      }) : prev);
     } catch (err: any) {
       showToast(err.message || 'Failed to submit attendance sheet.', 'error');
     } finally {
@@ -184,317 +250,528 @@ export default function Attendance() {
     }
   };
 
+  const setStudentPresence = (studentId: string, isPresent: boolean) => {
+    if (!canEditRoster) return;
+    setIsDirty(true);
+    setAbsentIds((prev) => {
+      const isAbsent = prev.includes(studentId);
+      if (isPresent && isAbsent) {
+        return prev.filter((id) => id !== studentId);
+      }
+      if (!isPresent && !isAbsent) {
+        return [...prev, studentId];
+      }
+      return prev;
+    });
+  };
+
   const getAbsentStudentsList = () => {
     return students.filter(s => absentIds.includes(s.id));
   };
 
+  const renderStatusBadge = (status?: SessionStatus['status']) => {
+    if (status === 'open') return <Badge variant="success">Open</Badge>;
+    if (status === 'locked') return <Badge variant="neutral">Locked</Badge>;
+    if (status === 'closed') return <Badge variant="danger">Closed</Badge>;
+    if (status === 'not_yet_open') return <Badge variant="warning">Upcoming</Badge>;
+    return <Badge variant="neutral">Idle</Badge>;
+  };
+
+  const renderLandingView = () => {
+    const allSessionStates = assignedClasses.flatMap((item) => [item.sessions.morning, item.sessions.evening]);
+    const activeCount = allSessionStates.filter((session) => session.status === 'open').length;
+    const upcomingCount = allSessionStates.filter((session) => session.status === 'not_yet_open').length;
+    const completedCount = allSessionStates.filter((session) => session.status === 'locked' || session.status === 'closed').length;
+
+    const hubColumns: TableColumn<StaffAttendanceClass>[] = [
+      {
+        label: 'Class Section',
+        key: 'name',
+        render: (row) => (
+          <div>
+            <div className="font-semibold text-slate-900">{row.name}</div>
+            <div className="text-xs text-slate-400">Batch: {row.batch_type === 'both' ? 'Morning + Evening' : row.batch_type === 'morning' ? 'Morning' : 'Evening'}</div>
+          </div>
+        )
+      },
+      {
+        label: 'Morning',
+        key: 'sessions',
+        render: (row) => {
+          const morning = row.sessions.morning;
+          if (row.batch_type === 'evening') return <Badge variant="neutral">Not offered</Badge>;
+          return <Badge variant={morning.status === 'open' ? 'success' : morning.status === 'not_yet_open' ? 'warning' : morning.status === 'locked' ? 'neutral' : 'danger'}>{morning.status === 'open' ? 'Open' : morning.status === 'not_yet_open' ? 'Upcoming' : morning.status === 'locked' ? 'Locked' : 'Closed'}</Badge>;
+        }
+      },
+      {
+        label: 'Evening',
+        key: 'sessions',
+        render: (row) => {
+          const evening = row.sessions.evening;
+          if (row.batch_type === 'morning') return <Badge variant="neutral">Not offered</Badge>;
+          return <Badge variant={evening.status === 'open' ? 'success' : evening.status === 'not_yet_open' ? 'warning' : evening.status === 'locked' ? 'neutral' : 'danger'}>{evening.status === 'open' ? 'Open' : evening.status === 'not_yet_open' ? 'Upcoming' : evening.status === 'locked' ? 'Locked' : 'Closed'}</Badge>;
+        }
+      },
+      {
+        label: 'Action',
+        key: 'action',
+        render: (row) => {
+          const morning = row.sessions.morning;
+          const evening = row.sessions.evening;
+          const morningOpen = row.batch_type !== 'evening' && morning.status === 'open';
+          const eveningOpen = row.batch_type !== 'morning' && evening.status === 'open';
+
+          return (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant={morningOpen ? 'primary' : 'secondary'}
+                size="sm"
+                disabled={!morningOpen}
+                onClick={() => navigate(`/staff/attendance/${row.id}?session=morning`)}
+              >
+                Morning
+              </Button>
+              <Button
+                variant={eveningOpen ? 'primary' : 'secondary'}
+                size="sm"
+                disabled={!eveningOpen}
+                onClick={() => navigate(`/staff/attendance/${row.id}?session=evening`)}
+              >
+                Evening
+              </Button>
+            </div>
+          );
+        }
+      }
+    ];
+
+    return (
+      <div className="space-y-6 pb-8">
+        <div className="rounded-[28px] border border-slate-200 bg-linear-to-br from-white via-slate-50 to-blue-50/60 p-6 md:p-8 shadow-sm overflow-hidden relative">
+          <div className="absolute inset-y-0 right-0 w-72 bg-linear-to-l from-blue-100/50 to-transparent pointer-events-none" />
+          <div className="relative flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div className="space-y-3 max-w-2xl">
+              <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700">
+                <ClipboardCheck className="h-3.5 w-3.5" />
+                Attendance hub
+              </div>
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold text-slate-900 tracking-tight">
+                  Choose a class, then take attendance in one clean flow.
+                </h1>
+                <p className="mt-2 max-w-2xl text-sm md:text-[15px] text-slate-500 leading-relaxed">
+                  Open attendance from here or from the dashboard. Active sessions show the student roster with present as the default state and absent as the only toggle.
+                </p>
+              </div>
+            </div>
+            <Button variant="secondary" onClick={() => navigate('/staff/dashboard')} className="md:self-start">
+              Back to dashboard
+            </Button>
+          </div>
+
+          <div className="relative mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-2xl bg-white/85 border border-slate-200 p-4 shadow-sm">
+              <div className="flex items-center gap-2 text-slate-500 text-xs font-semibold uppercase tracking-wider">
+                <Users className="h-4 w-4" />
+                Open now
+              </div>
+              <div className="mt-2 text-3xl font-bold text-slate-900">{activeCount}</div>
+              <div className="text-xs text-slate-500 mt-1">Classes ready for attendance.</div>
+            </div>
+            <div className="rounded-2xl bg-white/85 border border-slate-200 p-4 shadow-sm">
+              <div className="flex items-center gap-2 text-slate-500 text-xs font-semibold uppercase tracking-wider">
+                <CalendarDays className="h-4 w-4" />
+                Upcoming
+              </div>
+              <div className="mt-2 text-3xl font-bold text-slate-900">{upcomingCount}</div>
+              <div className="text-xs text-slate-500 mt-1">Sessions scheduled later today.</div>
+            </div>
+            <div className="rounded-2xl bg-white/85 border border-slate-200 p-4 shadow-sm">
+              <div className="flex items-center gap-2 text-slate-500 text-xs font-semibold uppercase tracking-wider">
+                <Sparkles className="h-4 w-4" />
+                Locked / closed
+              </div>
+              <div className="mt-2 text-3xl font-bold text-slate-900">{completedCount}</div>
+              <div className="text-xs text-slate-500 mt-1">Already submitted or closed.</div>
+            </div>
+          </div>
+        </div>
+
+        {assignedClasses.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center shadow-sm">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-400">
+              <School className="h-6 w-6" />
+            </div>
+            <h2 className="mt-4 text-lg font-semibold text-slate-800">No assigned classes</h2>
+            <p className="mx-auto mt-2 max-w-md text-sm text-slate-500 leading-relaxed">
+              There are no class mappings linked to your staff account yet. Ask administration to assign your sections before taking attendance.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400">Your attendance sessions</h2>
+              <span className="text-xs font-semibold text-slate-400">{assignedClasses.length} class sections</span>
+            </div>
+
+            <Table
+              columns={hubColumns}
+              data={assignedClasses}
+              emptyMessage="No assigned attendance sessions found."
+            />
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderRosterWorkspace = () => {
+    if (!classId) return null;
+
+    if (isLockedView) {
+      const submittedAt = currentSessionInfo?.submitted_at
+        ? new Date(currentSessionInfo.submitted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : 'N/A';
+
+      return (
+        <div className="mx-auto flex min-h-130 max-w-2xl flex-col items-center justify-center rounded-[28px] border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-emerald-100 bg-emerald-50 text-emerald-600">
+            <CheckCircle className="h-8 w-8" />
+          </div>
+          <h2 className="mt-5 text-2xl font-bold tracking-tight text-slate-900">Attendance locked</h2>
+          <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-500">
+            This session is already submitted and locked. Submitted at {submittedAt}. No further changes are allowed.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <Button variant="secondary" onClick={() => navigate('/staff/attendance')}>
+              Back to attendance hub
+            </Button>
+            <Button variant="primary" onClick={() => navigate('/staff/history')}>
+              View history
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    if (status === 'not_yet_open') {
+      return (
+        <div className="mx-auto flex min-h-130 max-w-2xl flex-col items-center justify-center rounded-[28px] border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-amber-100 bg-amber-50 text-amber-600">
+            <Clock className="h-8 w-8" />
+          </div>
+          <h2 className="mt-5 text-2xl font-bold tracking-tight text-slate-900">Session not yet open</h2>
+          <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-500">
+            The {effectiveSessionType} session for {currentClass?.name || 'this class'} opens at {formatTimeString(currentSessionInfo?.opens_at)}.
+          </p>
+          <div className="mt-6 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-700">
+            Opens in {formatCountdown(timeToOpen)}
+          </div>
+          <Button variant="secondary" onClick={() => navigate('/staff/attendance')} className="mt-6">
+            Back to attendance hub
+          </Button>
+        </div>
+      );
+    }
+
+    if (status === 'closed') {
+      return (
+        <div className="mx-auto flex min-h-130 max-w-2xl flex-col items-center justify-center rounded-[28px] border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-red-100 bg-red-50 text-red-500">
+            <AlertCircle className="h-8 w-8" />
+          </div>
+          <h2 className="mt-5 text-2xl font-bold tracking-tight text-slate-900">Session window closed</h2>
+          <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-500">
+            The {effectiveSessionType} window for {currentClass?.name || 'this class'} has closed at {formatTimeString(currentSessionInfo?.locks_at)}.
+          </p>
+          <Button variant="secondary" onClick={() => navigate('/staff/attendance')} className="mt-6">
+            Back to attendance hub
+          </Button>
+        </div>
+      );
+    }
+
+    if (!currentSessionInfo) {
+      return (
+        <div className="mx-auto flex min-h-130 max-w-2xl flex-col items-center justify-center rounded-[28px] border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-500">
+            <AlertCircle className="h-8 w-8" />
+          </div>
+          <h2 className="mt-5 text-2xl font-bold tracking-tight text-slate-900">Session not configured</h2>
+          <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-500">
+            This class does not support the selected session type. Return to the hub and choose a valid session.
+          </p>
+          <Button variant="secondary" onClick={() => navigate('/staff/attendance')} className="mt-6">
+            Back to attendance hub
+          </Button>
+        </div>
+      );
+    }
+
+    const presentCount = students.length - absentIds.length;
+    const filteredStudents = students.filter(s => {
+      const query = searchQuery.toLowerCase();
+      return s.full_name.toLowerCase().includes(query) || s.roll_number.toLowerCase().includes(query);
+    });
+
+    const rosterColumns: TableColumn<StudentType>[] = [
+      {
+        label: 'Roll No',
+        key: 'roll_number',
+        render: (row) => <span className="font-mono font-bold text-slate-500">{row.roll_number}</span>
+      },
+      {
+        label: 'Student',
+        key: 'full_name',
+        render: (row) => <span className="font-semibold text-slate-900">{row.full_name}</span>
+      },
+      {
+        label: 'Attendance',
+        key: 'status',
+        render: (row) => {
+          const isAbsent = absentIds.includes(row.id);
+          return (
+            <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setStudentPresence(row.id, true)}
+                disabled={!canEditRoster}
+                className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors ${
+                  !isAbsent ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:bg-slate-50'
+                }`}
+              >
+                Present
+              </button>
+              <button
+                type="button"
+                onClick={() => setStudentPresence(row.id, false)}
+                disabled={!canEditRoster}
+                className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors ${
+                  isAbsent ? 'bg-red-600 text-white' : 'text-slate-500 hover:bg-slate-50'
+                }`}
+              >
+                Absent
+              </button>
+            </div>
+          );
+        }
+      }
+    ];
+
+    return (
+      <div className="space-y-5 pb-28">
+        <div className="rounded-[28px] border border-slate-200 bg-linear-to-br from-white via-slate-50 to-blue-50/60 p-6 md:p-7 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="space-y-3">
+              <button 
+                onClick={() => {
+                  if (isDirty && !hasSubmitted) {
+                    if (window.confirm('You have unsaved changes. Leave this roster?')) {
+                      navigate('/staff/attendance');
+                    }
+                  } else {
+                    navigate('/staff/attendance');
+                  }
+                }}
+                className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 transition-colors hover:text-slate-900"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Back to attendance hub
+              </button>
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold text-slate-900 tracking-tight">{currentClass?.name || 'Attendance workspace'}</h1>
+                <p className="mt-2 text-sm text-slate-500 leading-relaxed max-w-2xl">
+                  Toggle a student to absent, keep the rest present by default, then confirm once. After submission, the session is locked and cannot be changed.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-500">
+              <Badge variant={effectiveSessionType === 'morning' ? 'warning' : 'neutral'}>
+                {effectiveSessionType === 'morning' ? 'Morning session' : 'Evening session'}
+              </Badge>
+              <Badge variant="neutral">{students.length} students</Badge>
+            </div>
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">Present</div>
+              <div className="mt-2 text-3xl font-bold text-emerald-600">{presentCount}</div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">Absent</div>
+              <div className="mt-2 text-3xl font-bold text-red-600">{absentIds.length}</div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">Window</div>
+              <div className="mt-2 text-sm font-semibold text-slate-700 leading-relaxed">
+                Closes in {formatCountdown(timeRemaining)}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm leading-relaxed text-blue-800 shadow-sm">
+          <Info className="mr-2 inline-block h-4 w-4 align-[-2px] text-blue-600" />
+          Students are marked <strong>present</strong> by default. Use the Present / Absent toggle in the table to change status.
+        </div>
+
+        <div className="relative max-w-xl">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search by name or roll number..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm font-medium text-slate-700 shadow-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+          />
+        </div>
+
+        <div className="rounded-[28px] border border-slate-200 bg-white p-4 md:p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400">Student roster</h2>
+              <p className="mt-1 text-xs text-slate-500">Use the toggle buttons to mark absence, then submit once to lock the session.</p>
+            </div>
+            <Badge variant="neutral">{filteredStudents.length} visible</Badge>
+          </div>
+
+          {filteredStudents.length === 0 ? (
+            <div className="py-20 text-center text-sm text-slate-400">
+              No students found for your search.
+            </div>
+          ) : (
+            <Table columns={rosterColumns} data={filteredStudents} emptyMessage="No students found for your search." />
+          )}
+        </div>
+
+        <div className="fixed bottom-0 left-0 right-0 lg:left-64 z-40 border-t border-slate-200 bg-white/95 px-5 py-4 shadow-[0_-8px_24px_rgba(15,23,42,0.06)] backdrop-blur">
+          <div className="mx-auto flex max-w-7xl flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="text-sm font-medium text-slate-600">
+              <span className={absentIds.length > 0 ? 'font-bold text-red-600' : 'font-bold text-slate-500'}>
+                {absentIds.length} absent
+              </span>
+              <span className="text-slate-400"> and </span>
+              <span className="font-bold text-emerald-600">{presentCount} present</span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => navigate('/staff/attendance')}
+                disabled={submitting || hasSubmitted}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => setIsVerifyModalOpen(true)}
+                disabled={!canEditRoster || students.length === 0}
+              >
+                Review & confirm
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <Modal
+          isOpen={isVerifyModalOpen}
+          onClose={() => setIsVerifyModalOpen(false)}
+          title="Confirm attendance submission"
+        >
+          <div className="space-y-4">
+            <p className="text-sm leading-relaxed text-slate-500">
+              Review the attendance summary before you submit. If nobody is absent, the absent list will show as empty and you can still confirm immediately.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-center shadow-sm">
+                <div className="text-3xl font-bold text-emerald-600">{presentCount}</div>
+                <div className="mt-1 text-xs font-semibold text-emerald-700">Present</div>
+              </div>
+              <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-center shadow-sm">
+                <div className="text-3xl font-bold text-red-600">{absentIds.length}</div>
+                <div className="mt-1 text-xs font-semibold text-red-700">Absent</div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Absent students</h4>
+              {absentIds.length > 0 ? (
+                <div className="max-h-48 overflow-y-auto rounded-2xl border border-slate-100 bg-white divide-y divide-slate-100 shadow-sm">
+                  {getAbsentStudentsList().map((student) => (
+                    <div key={student.id} className="flex items-center justify-between px-4 py-3 text-sm gap-3">
+                      <div className="min-w-0">
+                        <div className="font-medium text-slate-800 truncate">{student.full_name}</div>
+                        <div className="text-xs font-semibold text-slate-400">{student.roll_number}</div>
+                      </div>
+                      <Badge variant="danger" className="shrink-0">Absent</Badge>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-500 shadow-sm">
+                  No absent students selected. Everyone is currently marked present.
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-sm leading-relaxed text-amber-800">
+              <AlertTriangle className="mr-2 inline-block h-4 w-4 align-[-2px] text-amber-500" />
+              Submission is final. After confirmation, the session is locked and no reverting is allowed.
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <Button variant="secondary" onClick={() => setIsVerifyModalOpen(false)} disabled={submitting}>
+                Go back
+              </Button>
+              <Button
+                variant="danger"
+                onClick={handleSubmit}
+                loading={submitting}
+              >
+                Submit and lock
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] gap-2 text-slate-400">
+      <div className="flex min-h-125 flex-col items-center justify-center gap-3 text-slate-400">
         <Loader2 className="w-8 h-8 text-blue-500 animate-spin shrink-0" />
-        <span className="text-xs font-semibold select-none">Retrieving session rosters...</span>
+        <span className="text-xs font-semibold uppercase tracking-wider select-none">
+          Loading attendance workspace...
+        </span>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-white border border-slate-200 p-8 rounded-2xl max-w-md mx-auto text-center flex flex-col items-center select-none shadow-sm mt-8 animate-fade-in">
-        <AlertCircle className="w-12 h-12 text-red-500 mb-4 shrink-0" />
-        <h3 className="text-base font-bold text-slate-800 tracking-tight">Configuration Error</h3>
-        <p className="text-xs text-slate-400 mt-2 leading-relaxed">{error}</p>
-        <Button variant="secondary" size="sm" onClick={() => navigate('/staff/dashboard')} className="mt-6">
-          Back to Dashboard
-        </Button>
-      </div>
-    );
-  }
-
-  const { status, opens_at, locks_at, is_submitted, submitted_at } = sessionStatus || {};
-
-  if (status === 'not_yet_open') {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] p-4 select-none">
-        <div className="bg-white border border-slate-200 rounded-2xl p-8 max-w-md w-full text-center flex flex-col items-center shadow-sm animate-scale-in">
-          <div className="w-14 h-14 bg-amber-50 text-amber-500 border border-amber-100 rounded-2xl flex items-center justify-center mb-5 shrink-0">
-            <Clock className="w-7 h-7" />
-          </div>
-          <h2 className="text-base font-bold text-slate-800 tracking-tight">Session Not Yet Open</h2>
-          <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-            The {sessionType} session window opens at <span className="font-semibold text-slate-700">{formatTimeString(opens_at)}</span>.
-          </p>
-          <div className="mt-6 px-4 py-2 bg-amber-50 border border-amber-100 rounded-xl text-xs font-bold text-amber-700">
-            Opens in: {formatCountdown(timeToOpen)}
-          </div>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/staff/dashboard')} className="mt-8">
-            Back to Dashboard
+      <div className="mx-auto flex max-w-md flex-col items-center rounded-[28px] border border-slate-200 bg-white p-8 text-center shadow-sm mt-8">
+        <AlertCircle className="w-12 h-12 text-red-500 shrink-0" />
+        <h3 className="mt-4 text-lg font-bold text-slate-900">Configuration error</h3>
+        <p className="mt-2 text-sm leading-relaxed text-slate-500">{error}</p>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+          <Button variant="secondary" size="sm" onClick={() => navigate('/staff/attendance')}>
+            Back to attendance hub
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => navigate('/staff/dashboard')}>
+            Back to dashboard
           </Button>
         </div>
       </div>
     );
   }
-
-  if (status === 'locked' || is_submitted) {
-    const formattedSubmittedTime = submitted_at 
-      ? new Date(submitted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-      : 'N/A';
-
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] p-4 select-none">
-        <div className="bg-white border border-slate-200 rounded-2xl p-8 max-w-md w-full text-center flex flex-col items-center shadow-sm animate-scale-in">
-          <div className="w-14 h-14 bg-blue-50 text-blue-500 border border-blue-100 rounded-2xl flex items-center justify-center mb-5 shrink-0">
-            <CheckCircle className="w-7 h-7" />
-          </div>
-          <h2 className="text-base font-bold text-slate-800 tracking-tight">Attendance Already Submitted</h2>
-          <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-            Rosters for this session were submitted at <span className="font-semibold text-slate-700">{formattedSubmittedTime}</span> today.
-          </p>
-          <div className="mt-8 flex flex-col sm:flex-row gap-3 w-full justify-center">
-            <Button variant="secondary" size="sm" onClick={() => navigate('/staff/dashboard')}>
-              Back to Dashboard
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => navigate('/staff/history')}>
-              View History logs &rarr;
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (status === 'closed') {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] p-4 select-none">
-        <div className="bg-white border border-slate-200 rounded-2xl p-8 max-w-md w-full text-center flex flex-col items-center shadow-sm animate-scale-in">
-          <div className="w-14 h-14 bg-red-50 text-red-500 border border-red-100 rounded-2xl flex items-center justify-center mb-5 shrink-0">
-            <AlertCircle className="w-7 h-7" />
-          </div>
-          <h2 className="text-base font-bold text-slate-800 tracking-tight">Session Window Has Closed</h2>
-          <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-            The {sessionType} session window closed at <span className="font-semibold text-slate-700">{formatTimeString(locks_at)}</span>. 
-            Contact your administration if you need to submit late attendance logs.
-          </p>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/staff/dashboard')} className="mt-8">
-            Back to Dashboard
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  const presentCount = students.length - absentIds.length;
-  const filteredStudents = students.filter(s => {
-    const query = searchQuery.toLowerCase();
-    return s.full_name.toLowerCase().includes(query) || s.roll_number.toLowerCase().includes(query);
-  });
 
   return (
-    <div className="flex flex-col gap-5 pb-24 relative select-none">
-      {/* Top Header Actions */}
-      <div className="flex items-center justify-between">
-        <button 
-          onClick={() => {
-            if (isDirty) {
-              if (window.confirm("You have unsaved changes. Leave anyway?")) {
-                navigate('/staff/dashboard');
-              }
-            } else {
-              navigate('/staff/dashboard');
-            }
-          }}
-          className="text-xs font-bold text-slate-500 hover:text-slate-800 flex items-center gap-1 cursor-pointer transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4 shrink-0" />
-          Dashboard console
-        </button>
-        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-          Attendance Workspace
-        </span>
-      </div>
-
-      {/* Info Bar */}
-      <div className="bg-white border border-slate-200/60 p-4 rounded-xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full">
-        <div>
-          <h2 className="text-sm font-bold text-slate-800 tracking-tight flex items-center gap-1.5">
-            {classDetail?.name}
-            <Badge variant="warning">{sessionType === 'morning' ? 'Morning' : 'Evening'}</Badge>
-          </h2>
-          <p className="text-[11px] text-slate-400 font-semibold mt-1">
-            Window Timings: {formatTimeString(opens_at)} &ndash; {formatTimeString(locks_at)}
-          </p>
-        </div>
-        
-        <div className="flex items-center gap-5 sm:justify-end shrink-0">
-          <div className="text-xs font-semibold flex items-center gap-2">
-            <span className="text-slate-400">Roster state:</span>
-            <span className="text-emerald-600 font-bold">{presentCount} Present</span>
-            <span className="text-slate-200 font-medium">&bull;</span>
-            <span className={`${absentIds.length > 0 ? 'text-red-600 font-extrabold' : 'text-slate-400 font-bold'}`}>
-              {absentIds.length} Absent
-            </span>
-          </div>
-
-          <div className="w-px h-5 bg-slate-100" />
-
-          <div className="text-xs font-bold text-amber-600 flex items-center gap-1">
-            <Clock className="w-3.5 h-3.5 shrink-0" />
-            <span>Closes in: {formatCountdown(timeRemaining)}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Blue Informational Banner */}
-      <div className="bg-blue-50 border-l-4 border-blue-500 p-3.5 rounded-r-xl flex gap-3 text-xs leading-relaxed text-blue-800 animate-fade-in select-none">
-        <Info className="w-4.5 h-4.5 text-blue-500 shrink-0 mt-0.5" />
-        <div>
-          All <span className="font-bold">{students.length}</span> students are marked <span className="font-bold">present</span> by default. 
-          Tap on a student's card to toggle and mark them <span className="font-bold text-red-600">absent</span>.
-        </div>
-      </div>
-
-      {/* Search Input Bar */}
-      <div className="relative w-full max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 shrink-0" />
-        <input
-          type="text"
-          placeholder="Search student by name or roll number..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 focus:border-blue-500 rounded-xl text-xs font-semibold text-slate-700 transition-all placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-blue-500/5"
-        />
-      </div>
-
-      {/* Grid container with scrolling bounds */}
-      <div className="w-full overflow-y-auto max-h-[60vh] pr-1">
-        {filteredStudents.length === 0 ? (
-          <div className="py-20 text-center text-slate-400 text-xs font-medium border border-dashed border-slate-200 bg-slate-50/50 rounded-2xl">
-            No students found matching your query.
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            {filteredStudents.map((s) => {
-              const isAbsent = absentIds.includes(s.id);
-              
-              return (
-                <div
-                  key={s.id}
-                  onClick={() => handleStudentClick(s.id)}
-                  className={`p-3 rounded-lg border flex flex-col justify-between h-20 transition-all cursor-pointer select-none ${
-                    isAbsent
-                      ? 'bg-red-50/70 border-red-200 ring-2 ring-red-500/5'
-                      : 'bg-white border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  {/* Top Bar inside Card */}
-                  <div className="flex items-center justify-between w-full">
-                    <span className={`text-[10px] font-bold font-mono tracking-tight ${isAbsent ? 'text-red-500' : 'text-slate-400'}`}>
-                      {s.roll_number}
-                    </span>
-                    {isAbsent ? (
-                      <XCircle className="w-4.5 h-4.5 text-red-500 shrink-0" />
-                    ) : (
-                      <CheckCircle2 className="w-4.5 h-4.5 text-emerald-500 shrink-0" />
-                    )}
-                  </div>
-                  
-                  {/* Student Name */}
-                  <span className={`text-xs font-semibold truncate mt-2 ${isAbsent ? 'text-red-600' : 'text-slate-700'}`}>
-                    {s.full_name}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Sticky Bottom Actions Bar */}
-      <div className="fixed bottom-0 left-0 lg:left-64 right-0 bg-white border-t border-slate-200 px-6 py-4.5 flex items-center justify-between z-40 shadow-[0_-4px_12px_rgba(0,0,0,0.03)] select-none">
-        <div className="text-xs font-semibold">
-          <span className={absentIds.length > 0 ? 'text-red-600 font-extrabold' : 'text-slate-400'}>
-            {absentIds.length} students
-          </span>
-          <span className="text-slate-400"> marked absent</span>
-        </div>
-
-        <Button
-          variant="primary"
-          onClick={() => setIsVerifyModalOpen(true)}
-          disabled={status !== 'open'}
-        >
-          Review & Confirm
-        </Button>
-      </div>
-
-      {/* VerifyModal Dialog */}
-      <Modal
-        isOpen={isVerifyModalOpen}
-        onClose={() => setIsVerifyModalOpen(false)}
-        title="Confirm Attendance Submission"
-      >
-        <div className="flex flex-col gap-4">
-          <p className="text-xs text-slate-400 font-medium leading-relaxed select-none">
-            Please review the attendance summary metrics below before submitting. This operation is locked and cannot be undone.
-          </p>
-
-          {/* Ratios stats cards */}
-          <div className="grid grid-cols-2 gap-3.5 select-none">
-            <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-xl flex flex-col items-center justify-center">
-              <span className="text-2xl font-bold text-emerald-600">{presentCount}</span>
-              <span className="text-xs font-semibold text-emerald-600 mt-0.5">Present</span>
-            </div>
-            <div className="bg-red-50/50 border border-red-100 p-4 rounded-xl flex flex-col items-center justify-center">
-              <span className="text-2xl font-bold text-red-600">{absentIds.length}</span>
-              <span className="text-xs font-semibold text-red-600 mt-0.5">Absent</span>
-            </div>
-          </div>
-
-          {/* Absent list */}
-          {absentIds.length > 0 && (
-            <div className="flex flex-col gap-2.5">
-              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider select-none">Absent Student List</h4>
-              <div className="border border-slate-100 rounded-xl max-h-[160px] overflow-y-auto divide-y divide-slate-50">
-                {getAbsentStudentsList().map((s) => (
-                  <div key={s.id} className="px-3.5 py-2 flex items-center justify-between text-xs">
-                    <div className="flex gap-2">
-                      <span className="font-mono text-slate-400 font-bold">{s.roll_number}</span>
-                      <span className="font-semibold text-slate-700">{s.full_name}</span>
-                    </div>
-                    <Badge variant="danger" className="py-0.5 px-2">Absent</Badge>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Alert Warning Box */}
-          <div className="bg-amber-50 border border-amber-100 p-3.5 rounded-xl flex gap-2.5 text-xs text-amber-800 select-none">
-            <AlertTriangle className="w-4.5 h-4.5 text-amber-500 shrink-0 mt-0.5" />
-            <div className="leading-relaxed">
-              <span className="font-bold">Important Notice:</span> Once submitted, this session will be locked and attendance statistics will be finalized.
-            </div>
-          </div>
-
-          {/* Footer Actions */}
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 mt-2 select-none">
-            <Button
-              variant="secondary"
-              onClick={() => setIsVerifyModalOpen(false)}
-              disabled={submitting}
-            >
-              Go Back
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleSubmit}
-              loading={submitting}
-              className="bg-red-600 hover:bg-red-700 text-white shadow-md hover:shadow-lg border-transparent"
-            >
-              Submit Attendance
-            </Button>
-          </div>
-        </div>
-      </Modal>
+    <div className="space-y-6">
+      {classId ? renderRosterWorkspace() : renderLandingView()}
     </div>
   );
 }

@@ -49,8 +49,8 @@ export default function History() {
       const myClasses = await attendanceApi.getMyClasses();
       setClasses(myClasses || []);
 
-      // 2. Fetch all sessions (filtered client-side or backend depending on params)
-      const data = await attendanceApi.getAllSessions();
+      // 2. Fetch history sessions only for the logged-in staff member
+      const data = await attendanceApi.getMyAttendanceHistory({ limit: 500 });
       setSessions(data.sessions || []);
     } catch (err: any) {
       setError(err.message || 'Failed to retrieve attendance logs.');
@@ -179,7 +179,7 @@ export default function History() {
       {/* Page Header */}
       <div>
         <h1 className="text-xl font-bold text-slate-800 tracking-tight">Attendance Logs</h1>
-        <p className="text-xs text-slate-400 font-medium mt-0.5">Review history reports and student status registers.</p>
+        <p className="text-xs text-slate-400 font-medium mt-0.5">Review your submitted sessions and student status registers.</p>
       </div>
 
       {error && (

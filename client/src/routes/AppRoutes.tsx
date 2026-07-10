@@ -84,7 +84,7 @@ export default function AppRoutes() {
             <Route path="dashboard" element={<StaffDashboard />} />
             
             <Route path="attendance/:classId" element={<StaffAttendance />} />
-            <Route path="attendance" element={<Navigate to="/staff/dashboard" replace />} />
+            <Route path="attendance" element={<StaffAttendance />} />
             <Route path="history" element={<StaffHistory />} />
 
             {/* NO reports page for staff */}

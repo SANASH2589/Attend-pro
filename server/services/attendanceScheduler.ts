@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { supabaseAdmin } from '../lib/supabase';
+import { sendAbsenteeNotifications } from './sms/smsOrchestrator';
 
 /**
  * Helper to convert "HH:MM:SS" or "HH:MM" to minutes
@@ -82,6 +83,13 @@ async function runAutoLock(): Promise<void> {
                 if (auditErr) {
                   console.error(`[Scheduler] Failed to insert audit log for session ${morningSession.id}:`, auditErr.message);
                 }
+
+                // Send SMS notifications for absent students
+                sendAbsenteeNotifications(morningSession.id)
+                  .catch(err => console.error(
+                    '[Scheduler] SMS error for session',
+                    morningSession.id, ':', err.message
+                  ));
               }
             }
           }
@@ -121,6 +129,13 @@ async function runAutoLock(): Promise<void> {
                 if (auditErr) {
                   console.error(`[Scheduler] Failed to insert audit log for session ${eveningSession.id}:`, auditErr.message);
                 }
+
+                // Send SMS notifications for absent students
+                sendAbsenteeNotifications(eveningSession.id)
+                  .catch(err => console.error(
+                    '[Scheduler] SMS error for session',
+                    eveningSession.id, ':', err.message
+                  ));
               }
             }
           }

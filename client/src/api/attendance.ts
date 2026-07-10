@@ -23,6 +23,8 @@ export interface GetAllSessionsParams {
   limit?: number | string;
 }
 
+export interface GetAttendanceHistoryParams extends GetAllSessionsParams {}
+
 export interface PaginatedSessionsResponse {
   sessions: AttendanceSession[];
   total: number;
@@ -101,6 +103,25 @@ export const attendanceApi = {
 
     const queryString = queryParams.toString();
     const url = `/api/super-admin/attendance/all-sessions${queryString ? `?${queryString}` : ''}`;
+
+    return request(url, {
+      method: 'GET'
+    });
+  },
+
+  /**
+   * Returns attendance history for the logged-in staff member's assigned classes
+   */
+  async getMyAttendanceHistory(params: GetAttendanceHistoryParams = {}): Promise<PaginatedSessionsResponse> {
+    const queryParams = new URLSearchParams();
+    if (params.class_id) queryParams.append('class_id', params.class_id);
+    if (params.date_from) queryParams.append('date_from', params.date_from);
+    if (params.date_to) queryParams.append('date_to', params.date_to);
+    if (params.page) queryParams.append('page', String(params.page));
+    if (params.limit) queryParams.append('limit', String(params.limit));
+
+    const queryString = queryParams.toString();
+    const url = `/api/staff/attendance/history${queryString ? `?${queryString}` : ''}`;
 
     return request(url, {
       method: 'GET'

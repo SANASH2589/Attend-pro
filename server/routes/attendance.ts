@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabase';
 import authMiddleware from '../middleware/auth';
 import { getStudentAttendanceStats, getClassAttendanceStats } from '../lib/attendanceStats';
+import { sendAbsenteeNotifications } from '../services/sms/smsOrchestrator';
 import type { SessionState, SessionStatus, ClassConfig } from '../types';
 
 const router = express.Router();
@@ -20,6 +21,31 @@ function getTodayDateString(): string {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function formatDbError(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object') {
+    const dbErr = err as {
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+      code?: unknown;
+    };
+
+    const message = typeof dbErr.message === 'string' && dbErr.message.trim() ? dbErr.message.trim() : fallback;
+    const details = typeof dbErr.details === 'string' && dbErr.details.trim() ? dbErr.details.trim() : '';
+    const hint = typeof dbErr.hint === 'string' && dbErr.hint.trim() ? dbErr.hint.trim() : '';
+    const code = typeof dbErr.code === 'string' && dbErr.code.trim() ? dbErr.code.trim() : '';
+
+    const extra = [details, hint, code ? `code ${code}` : ''].filter(Boolean).join(' | ');
+    return extra ? `${message} (${extra})` : message;
+  }
+
+  if (err instanceof Error && err.message.trim()) {
+    return err.message.trim();
+  }
+
+  return fallback;
 }
 
 // Role authorization checks
@@ -279,6 +305,90 @@ router.get('/students/:classId', staffOnly, async (req: Request, res: Response):
 });
 
 /**
+ * GET /api/v1/attendance/history
+ * Returns paginated attendance sessions for the logged-in staff member's assigned classes.
+ */
+router.get('/history', staffOnly, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { class_id, date_from, date_to, page, limit } = req.query as {
+      class_id?: string;
+      date_from?: string;
+      date_to?: string;
+      page?: string;
+      limit?: string;
+    };
+
+    const { data: assignments, error: assignErr } = await supabaseAdmin
+      .from('staff_class_assignments')
+      .select('class_id')
+      .eq('staff_id', req.user!.id);
+
+    if (assignErr) throw assignErr;
+
+    const assignedClassIds = (assignments || []).map((row: { class_id: string }) => row.class_id);
+    if (assignedClassIds.length === 0) {
+      res.json({ sessions: [], total: 0, page: 1, limit: 20 });
+      return;
+    }
+
+    let query = supabaseAdmin
+      .from('attendance_sessions')
+      .select(`
+        id,
+        class_id,
+        session_date,
+        session_type,
+        is_locked,
+        total_students,
+        total_absent,
+        submitted_at,
+        classes (
+          name
+        ),
+        profiles (
+          full_name
+        )
+      `, { count: 'exact' })
+      .in('class_id', assignedClassIds);
+
+    if (class_id) query = query.eq('class_id', class_id);
+    if (date_from) query = query.gte('session_date', date_from);
+    if (date_to) query = query.lte('session_date', date_to);
+
+    const pageNum = parseInt(page || '1') || 1;
+    const limitNum = parseInt(limit || '20') || 20;
+    const from = (pageNum - 1) * limitNum;
+    const to = from + limitNum - 1;
+
+    query = query
+      .order('session_date', { ascending: false })
+      .range(from, to);
+
+    const { data: sessions, count, error } = await query;
+    if (error) throw error;
+
+    const mappedSessions = (sessions || []).map((s: Record<string, unknown>) => {
+      const { profiles, ...rest } = s;
+      return {
+        ...rest,
+        users: profiles
+      };
+    });
+
+    res.json({
+      sessions: mappedSessions,
+      total: count || 0,
+      page: pageNum,
+      limit: limitNum
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error querying staff history sessions:', message);
+    res.status(500).json({ message: 'Failed to retrieve attendance history.' });
+  }
+});
+
+/**
  * POST /submit
  * Atomically submits attendance sheet for a class section.
  * Post-submission flow: save → lock → recalculate stats.
@@ -304,7 +414,11 @@ router.post('/submit', staffOnly, async (req: Request, res: Response): Promise<v
       .eq('class_id', class_id)
       .maybeSingle();
 
-    if (assignErr || !hasAssign) {
+    if (assignErr) {
+      throw new Error(formatDbError(assignErr, 'Failed to validate staff assignment.'));
+    }
+
+    if (!hasAssign) {
       res.status(403).json({ message: 'You are not assigned to instruct this class section.' });
       return;
     }
@@ -316,7 +430,11 @@ router.post('/submit', staffOnly, async (req: Request, res: Response): Promise<v
       .eq('id', class_id)
       .single();
 
-    if (classErr || !classObj) {
+    if (classErr) {
+      throw new Error(formatDbError(classErr, 'Failed to load class configuration.'));
+    }
+
+    if (!classObj) {
       res.status(404).json({ message: 'Target class configuration not found.' });
       return;
     }
@@ -349,15 +467,31 @@ router.post('/submit', staffOnly, async (req: Request, res: Response): Promise<v
     // 3. Fetch assigned students list — filtered by class_id
     const { data: studentAssigns, error: studErr } = await supabaseAdmin
       .from('student_class_assignments')
-      .select('student:students(id, is_active)')
+      .select('student_id')
       .eq('class_id', class_id);
 
-    if (studErr) throw studErr;
+    if (studErr) {
+      throw new Error(formatDbError(studErr, 'Failed to load assigned students.'));
+    }
 
-    const activeStudentIds = ((studentAssigns || []) as any[])
-      .map((a: any) => a.student)
-      .filter((s: any): s is { id: string; is_active: boolean } => s !== null && s.is_active)
-      .map((s: any) => s.id);
+    const assignedStudentIds = ((studentAssigns || []) as Array<{ student_id: string }>)
+      .map((row) => row.student_id)
+      .filter(Boolean);
+
+    let activeStudentIds: string[] = [];
+    if (assignedStudentIds.length > 0) {
+      const { data: activeStudents, error: activeStudentsErr } = await supabaseAdmin
+        .from('students')
+        .select('id')
+        .in('id', assignedStudentIds)
+        .eq('is_active', true);
+
+      if (activeStudentsErr) {
+        throw new Error(formatDbError(activeStudentsErr, 'Failed to load active students.'));
+      }
+
+      activeStudentIds = (activeStudents || []).map((student: { id: string }) => student.id);
+    }
 
     const totalStudents = activeStudentIds.length;
 
@@ -383,7 +517,7 @@ router.post('/submit', staffOnly, async (req: Request, res: Response): Promise<v
         res.status(409).json({ message: 'Attendance already submitted for this session' });
         return;
       }
-      throw sessErr;
+      throw new Error(formatDbError(sessErr, 'Failed to create attendance session.'));
     }
 
     // 5. Bulk insert records
@@ -401,7 +535,7 @@ router.post('/submit', staffOnly, async (req: Request, res: Response): Promise<v
       if (insertErr) {
         // Rollback session insert if record insertions fail
         await supabaseAdmin.from('attendance_sessions').delete().eq('id', session!.id);
-        throw insertErr;
+        throw new Error(formatDbError(insertErr, 'Failed to save attendance records.'));
       }
     }
 
@@ -423,9 +557,9 @@ router.post('/submit', staffOnly, async (req: Request, res: Response): Promise<v
       is_locked: true
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('Error submitting attendance sheet:', message);
-    res.status(500).json({ message: message || 'Internal error during attendance submission.' });
+    const message = formatDbError(err, 'Internal error during attendance submission.');
+    console.error('Error submitting attendance sheet:', err);
+    res.status(500).json({ message });
   }
 });
 
@@ -582,6 +716,21 @@ router.put('/session/:sessionId/lock', superAdminOnly, async (req: Request, res:
       .single();
 
     if (error) throw error;
+
+    // Fire and forget — send SMS notifications for absent students
+    sendAbsenteeNotifications(sessionId as string)
+      .then(result => {
+        console.log(
+          '[Attendance] SMS notifications result:',
+          result
+        );
+      })
+      .catch(err => {
+        console.error(
+          '[Attendance] SMS notification error:',
+          err.message
+        );
+      });
 
     res.json(updated);
   } catch (err: unknown) {

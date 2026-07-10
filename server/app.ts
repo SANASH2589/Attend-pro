@@ -13,6 +13,7 @@ import reportsRouter from './routes/reports';
 import dashboardRouter from './routes/dashboard';
 import attendanceRouter from './routes/attendance';
 import databaseRouter from './routes/database';
+import smsRoutes from './routes/sms.routes';
 
 // ============================================================
 // Create Express Application
@@ -58,6 +59,12 @@ app.use('/api/super-admin/attendance', attendanceRouter);
 // All routes below require staff role via their own middleware
 // ============================================================
 app.use('/api/staff/attendance', attendanceRouter);
+
+// ============================================================
+// SMS ROUTES — /api/sms/*
+// Protected by auth + super_admin role in the route file
+// ============================================================
+app.use('/api/sms', smsRoutes);
 
 // ============================================================
 // Health Check Endpoint
