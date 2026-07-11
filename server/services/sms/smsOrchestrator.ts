@@ -62,8 +62,8 @@ export async function sendAttendanceNotifications(
       year:  'numeric'
     });
 
-  // ── 2. Fetch ALL attendance records ───────────
-  // Both present and absent students
+  // ── 2. Fetch ABSENT attendance records ────────
+  // Only students marked as absent
   const { data: records, error: recordError } =
     await supabaseAdmin
       .from('attendance_records')
@@ -76,7 +76,8 @@ export async function sendAttendanceNotifications(
           parent_phone
         )
       `)
-      .eq('session_id', sessionId);
+      .eq('session_id', sessionId)
+      .eq('status', 'absent');
 
   if (recordError || !records?.length) {
     console.error(
@@ -150,15 +151,11 @@ export async function sendAttendanceNotifications(
       continue;
     }
 
-    // Build status-specific message
-    const message = attendance === 'absent'
-      ? `Attend-Pro: Your ward ${student.full_name} ` +
-        `was marked ABSENT for the ${sessionType} ` +
-        `session on ${sessionDate} at ${className}. ` +
-        `Please contact the college for details.`
-      : `Attend-Pro: Your ward ${student.full_name} ` +
-        `is PRESENT for the ${sessionType} session ` +
-        `on ${sessionDate} at ${className}.`;
+    // Build absent message
+    const message = `Attend-Pro: Your ward ${student.full_name} ` +
+      `was marked ABSENT for the ${sessionType} ` +
+      `session on ${sessionDate} at ${className}. ` +
+      `Please contact the college for details.`;
 
     // Send SMS via Twilio
     try {
