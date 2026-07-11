@@ -200,49 +200,110 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
 
 /**
  * DELETE /api/v1/staff/:id
- * Deactivates a staff member (marks status = INACTIVE).
+ * Hard deletes a staff member and all their session history.
  */
 router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
 
-    // Verify user exists and is staff
-    const { data: existingUser, error: checkError } = await supabaseAdmin
-      .from('profiles')
-      .select('id, role')
-      .eq('id', id)
-      .single();
-
-    if (checkError || !existingUser) {
-      res.status(404).json({ message: 'Staff member not found.' });
+    // Prevent self-deletion
+    if (id === req.user?.id) {
+      res.status(403).json({
+        success: false,
+        message: 'You cannot delete your own account.'
+      });
       return;
     }
 
-    if (existingUser.role !== 'STAFF') {
-      res.status(400).json({ message: 'User is not a staff member.' });
+    // Check staff exists
+    const { data: staff, error: findError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, full_name, role')
+      .eq('id', id)
+      .eq('role', 'STAFF')
+      .single();
+
+    if (findError || !staff) {
+      res.status(404).json({
+        success: false,
+        message: 'Staff member not found'
+      });
       return;
     }
 
-    const { data: deactivatedUser, error: deactivateError } = await supabaseAdmin
-      .from('profiles')
-      .update({ status: 'INACTIVE' })
-      .eq('id', id)
-      .select()
-      .single();
+    // Delete in correct FK dependency order
 
-    if (deactivateError) {
-      throw deactivateError;
+    // 1. Get all sessions by this staff member
+    const { data: sessions } = await supabaseAdmin
+      .from('attendance_sessions')
+      .select('id')
+      .eq('staff_id', id);
+
+    const sessionIds = sessions?.map(s => s.id) || [];
+
+    // 2. Delete attendance_records for those sessions
+    if (sessionIds.length > 0) {
+      await supabaseAdmin
+        .from('attendance_records')
+        .delete()
+        .in('session_id', sessionIds);
+
+      // 3. Delete sms_logs for those sessions
+      await supabaseAdmin
+        .from('sms_logs')
+        .delete()
+        .in('session_id', sessionIds);
+
+      // 4. Delete audit_log for those sessions
+      await supabaseAdmin
+        .from('audit_log')
+        .delete()
+        .in('session_id', sessionIds);
+
+      // 5. Delete the sessions themselves
+      await supabaseAdmin
+        .from('attendance_sessions')
+        .delete()
+        .eq('staff_id', id);
     }
 
-    res.json({
+    // 6. Delete staff class assignments
+    await supabaseAdmin
+      .from('staff_class_assignments')
+      .delete()
+      .eq('staff_id', id);
+
+    // 7. Delete from Supabase Auth
+    const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(id);
+
+    if (authError) {
+      console.error('[Staff Delete] Auth delete error:', authError.message);
+      // Continue anyway — remove from profiles table
+    }
+
+    // 8. Delete from profiles table
+    const { error: deleteError } = await supabaseAdmin
+      .from('profiles')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to delete staff record',
+        error: deleteError.message
+      });
+      return;
+    }
+
+    res.status(200).json({
       success: true,
-      message: 'Staff member deactivated successfully.',
-      user: normalizeProfile(deactivatedUser)
+      message: `${staff.full_name} and all related records have been deleted.`
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('Error deactivating staff member:', message);
-    res.status(500).json({ message: 'Failed to deactivate staff member.' });
+    console.error('Error deleting staff member:', message);
+    res.status(500).json({ message: 'Failed to delete staff member.' });
   }
 });
 

@@ -205,42 +205,70 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
 
 /**
  * DELETE /api/v1/students/:id
- * Deactivates a student profile (sets is_active = false).
+ * Hard deletes a student and all their attendance history.
  */
 router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
 
-    // Verify student exists
-    const { data: existingStudent, error: checkError } = await supabaseAdmin
+    // Check student exists
+    const { data: student, error: findError } = await supabaseAdmin
       .from('students')
-      .select('id')
+      .select('id, full_name')
       .eq('id', id)
       .single();
 
-    if (checkError || !existingStudent) {
-      res.status(404).json({ message: 'Student record not found.' });
+    if (findError || !student) {
+      res.status(404).json({
+        success: false,
+        message: 'Student not found'
+      });
       return;
     }
 
-    const { data: deactivatedStudent, error } = await supabaseAdmin
+    // Delete in correct FK dependency order
+    
+    // 1. Delete sms_logs where student_id = id
+    await supabaseAdmin
+      .from('sms_logs')
+      .delete()
+      .eq('student_id', id);
+
+    // 2. Delete attendance_records where student_id = id
+    await supabaseAdmin
+      .from('attendance_records')
+      .delete()
+      .eq('student_id', id);
+
+    // 3. Delete student_class_assignments
+    await supabaseAdmin
+      .from('student_class_assignments')
+      .delete()
+      .eq('student_id', id);
+
+    // 4. Delete student
+    const { error: deleteError } = await supabaseAdmin
       .from('students')
-      .update({ is_active: false })
-      .eq('id', id)
-      .select()
-      .single();
+      .delete()
+      .eq('id', id);
 
-    if (error) throw error;
+    if (deleteError) {
+      res.status(500).json({
+        success: false,
+        message: 'Failed to delete student',
+        error: deleteError.message
+      });
+      return;
+    }
 
-    res.json({
+    res.status(200).json({
       success: true,
-      message: 'Student record deactivated successfully.',
-      student: deactivatedStudent
+      message: `${student.full_name} and all related records have been deleted.`
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('Error deactivating student:', message);
-    res.status(500).json({ message: 'Failed to deactivate student record.' });
+    console.error('Error deleting student:', message);
+    res.status(500).json({ message: 'Failed to delete student record.' });
   }
 });
 

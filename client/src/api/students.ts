@@ -38,6 +38,13 @@ export const studentsApi = {
 
   async deactivate(id: string): Promise<{ success: boolean; message?: string }> {
     return request(`/api/super-admin/students/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_active: false })
+    });
+  },
+
+  async deleteStudent(id: string): Promise<{ success: boolean; message: string; hasAttendance?: boolean; }> {
+    return request(`/api/super-admin/students/${id}`, {
       method: 'DELETE'
     });
   },

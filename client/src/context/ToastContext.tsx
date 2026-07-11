@@ -4,11 +4,11 @@ import { X, CheckCircle2, AlertTriangle } from 'lucide-react';
 export interface Toast {
   id: number;
   message: string;
-  type: 'success' | 'error';
+  type: 'success' | 'error' | 'warning';
 }
 
 export interface ToastContextType {
-  showToast: (message: string, type?: 'success' | 'error') => void;
+  showToast: (message: string, type?: 'success' | 'error' | 'warning') => void;
 }
 
 const ToastContext = createContext<ToastContextType | null>(null);
@@ -28,7 +28,7 @@ export function ToastProvider({ children }: ToastProviderProps) {
   }, []);
 
   // Shows a temporary banner that auto-dismisses after 3 seconds
-  const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'warning' = 'success') => {
     const id = Date.now();
     setToasts((prev) => [...prev, { id, message, type }]);
     
@@ -49,12 +49,16 @@ export function ToastProvider({ children }: ToastProviderProps) {
             className={`flex items-start justify-between p-4 rounded-2xl border shadow-xl transition-all duration-300 pointer-events-auto animate-fade-in ${
               toast.type === 'success'
                 ? 'bg-emerald-50 border-emerald-100 text-emerald-800'
+                : toast.type === 'warning'
+                ? 'bg-amber-50 border-amber-200 text-amber-800'
                 : 'bg-red-50 border-red-100 text-red-800'
             }`}
           >
             <div className="flex gap-3 text-xs font-semibold">
               {toast.type === 'success' ? (
                 <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+              ) : toast.type === 'warning' ? (
+                <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
               ) : (
                 <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
               )}

@@ -24,6 +24,13 @@ export const staffApi = {
 
   async deactivate(id: string): Promise<{ success: boolean; message?: string }> {
     return request(`/api/super-admin/staff/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_active: false })
+    });
+  },
+
+  async deleteStaff(id: string): Promise<{ success: boolean; message: string; hasSessions?: boolean; }> {
+    return request(`/api/super-admin/staff/${id}`, {
       method: 'DELETE'
     });
   },

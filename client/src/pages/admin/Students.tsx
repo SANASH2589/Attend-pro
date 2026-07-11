@@ -8,7 +8,7 @@ import BulkImportModal from '../../components/admin/BulkImportModal';
 import studentsApi from '../../api/students';
 import classesApi from '../../api/classes';
 import { useToast } from '../../context/ToastContext';
-import { Search, UserPlus, FileUp, Filter, AlertCircle } from 'lucide-react';
+import { Search, UserPlus, FileUp, Filter, AlertCircle, Trash2, Pencil, UserX } from 'lucide-react';
 import { Student as StudentType } from '../../types/student';
 import { Class as ClassType } from '../../types/class';
 
@@ -37,6 +37,7 @@ export default function Students() {
 
   // Inline deactivation confirmations
   const [confirmingDeactivateId, setConfirmingDeactivateId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -111,12 +112,36 @@ export default function Students() {
   const handleReactivate = async (id: string, name: string) => {
     setActionLoading(true);
     try {
-      await studentsApi.update(id, { is_active: true });
+      await studentsApi.update(id, { is_active: true } as any);
       showToast(`Student record for "${name}" has been reactivated.`, 'success');
       fetchData();
     } catch (err: any) {
       showToast(err.message || 'Reactivation failed.', 'error');
     } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setActionLoading(true);
+    try {
+      const result = await studentsApi.deleteStudent(id);
+      
+      if (result.success) {
+        setStudents(prev => prev.filter(s => s.id !== id));
+        showToast(result.message, 'success');
+      }
+    } catch (error: any) {
+      if (error.status === 409 || (error.message && error.message.includes('Deactivate instead'))) {
+        showToast(
+          error.message || 'Cannot delete — student has attendance history. Use Deactivate instead.',
+          'warning'
+        );
+      } else {
+        showToast(error.message || 'Failed to delete student', 'error');
+      }
+    } finally {
+      setDeleteConfirmId(null);
       setActionLoading(false);
     }
   };
@@ -190,7 +215,7 @@ export default function Students() {
                 disabled={actionLoading}
                 className="py-1 px-2.5 text-[11px]"
               >
-                Confirm
+                Confirm Deactivate
               </Button>
               <Button
                 variant="secondary"
@@ -205,27 +230,55 @@ export default function Students() {
           );
         }
 
+        if (deleteConfirmId === row.id) {
+          return (
+            <div className="flex items-center gap-2 animate-fade-in">
+              <span className="text-xs text-red-600 font-medium">Delete + all records?</span>
+              <button
+                onClick={() => handleDelete(row.id)}
+                disabled={actionLoading}
+                className="text-xs px-2 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                disabled={actionLoading}
+                className="text-xs px-2 py-1 border border-gray-200 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          );
+        }
+
         return (
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
+          <div className="flex items-center gap-1">
+            <button
               onClick={() => {
                 setEditingStudent(row);
                 setIsFormModalOpen(true);
               }}
-              className="py-1 px-2.5 text-[11px]"
+              className="p-1.5 rounded-md text-slate-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+              title="Edit Info"
             >
-              Edit Info
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
+              <Pencil size={16} />
+            </button>
+            <button
               onClick={() => setConfirmingDeactivateId(row.id)}
-              className="py-1 px-2.5 text-[11px] text-red-600 hover:bg-red-50 hover:text-red-700"
+              className="p-1.5 rounded-md text-slate-400 hover:bg-amber-50 hover:text-amber-600 transition-colors"
+              title="Deactivate"
             >
-              Deactivate
-            </Button>
+              <UserX size={16} />
+            </button>
+            <div className="w-px h-4 bg-slate-200 mx-1" />
+            <button
+              onClick={() => setDeleteConfirmId(row.id)}
+              className="p-1.5 rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+              title="Delete permanently"
+            >
+              <Trash2 size={16} />
+            </button>
           </div>
         );
       }
