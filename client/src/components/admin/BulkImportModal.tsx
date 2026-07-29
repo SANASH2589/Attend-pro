@@ -99,8 +99,8 @@ export default function BulkImportModal({
   };
 
   const downloadCsvTemplate = () => {
-    const headers = ['roll_number', 'full_name', 'email', 'parent_phone'];
-    const sampleRow = ['ITA2301', 'John Doe', 'john@example.com', '9876543210'];
+    const headers = ['roll_number', 'full_name', 'department', 'section', 'parent_phone', 'email'];
+    const sampleRow = ['ITA2361', 'Sanjai S', 'Information Technology', 'A', '9876543210', 'student@college.edu'];
     const csvContent = [headers.join(','), sampleRow.join(',')].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -148,7 +148,14 @@ export default function BulkImportModal({
     try {
       const result = await studentsApi.importSave(previewRows);
       if (result.success) {
-        showToast(`Successfully saved ${result.importedCount} student records to database!`, 'success');
+        if (result.warnings && result.warnings.length > 0) {
+          showToast(`Saved ${result.importedCount} students with some warnings.`, 'warning');
+          result.warnings.forEach((warn: string) => {
+            showToast(warn, 'warning');
+          });
+        } else {
+          showToast(`Successfully saved ${result.importedCount} student records to database!`, 'success');
+        }
         onImportSuccess();
         handleClose();
       }
@@ -297,6 +304,8 @@ export default function BulkImportModal({
                   <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold uppercase select-none tracking-wider text-[9px]">
                     <th className="px-3.5 py-2">Roll No</th>
                     <th className="px-3.5 py-2">Full Name</th>
+                    <th className="px-3.5 py-2">Dept</th>
+                    <th className="px-3.5 py-2">Sec</th>
                     <th className="px-3.5 py-2">Parent Phone</th>
                     <th className="px-3.5 py-2">Email</th>
                   </tr>
@@ -306,8 +315,10 @@ export default function BulkImportModal({
                     <tr key={idx} className="hover:bg-slate-50/40">
                       <td className="px-3.5 py-2 font-mono text-slate-500">{row.roll_number}</td>
                       <td className="px-3.5 py-2 font-semibold text-slate-700">{row.full_name}</td>
+                      <td className="px-3.5 py-2">{row.department || <span className="text-slate-300 italic">—</span>}</td>
+                      <td className="px-3.5 py-2">{row.section || <span className="text-slate-300 italic">—</span>}</td>
                       <td className="px-3.5 py-2">{row.parent_phone}</td>
-                      <td className="px-3.5 py-2">{row.email || <span className="text-slate-300 italic">N/A</span>}</td>
+                      <td className="px-3.5 py-2">{row.email || <span className="text-slate-300 italic">—</span>}</td>
                     </tr>
                   ))}
                 </tbody>

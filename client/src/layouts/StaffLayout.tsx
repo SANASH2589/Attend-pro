@@ -6,12 +6,39 @@ import Footer from '../components/common/Footer';
 
 export default function StaffLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    return sessionStorage.getItem('sidebar-collapsed') === 'true';
+  });
+
+  const toggleSidebar = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    sessionStorage.setItem('sidebar-collapsed', String(next));
+    window.dispatchEvent(new CustomEvent('sidebar-toggle'));
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div 
+      className="bg-slate-50 flex flex-row font-sans"
+      style={{
+        display: 'flex',
+        maxWidth: '100vw',
+        overflow: 'hidden',
+        height: '100vh',
+      }}
+    >
       {/* Sidebar - Desktop (Fixed) */}
-      <div className="hidden lg:block fixed inset-y-0 left-0 w-64 z-30">
-        <Sidebar />
+      <div 
+        className="hidden lg:block"
+        style={{
+          width: collapsed ? '88px' : '256px',
+          transition: 'width 300ms ease-in-out',
+          overflow: 'hidden',
+          flexShrink: 0,
+          position: 'relative',
+        }}
+      >
+        <Sidebar collapsed={collapsed} onToggle={toggleSidebar} />
       </div>
 
       {/* Sidebar Drawer - Mobile / Tablet */}
@@ -33,7 +60,15 @@ export default function StaffLayout() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col lg:pl-64 transition-all duration-300">
+      <div 
+        className="flex flex-col transition-all duration-300"
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflowX: 'hidden',
+          overflowY: 'auto',
+        }}
+      >
         {/* Navbar */}
         <Navbar onMenuClick={() => setIsSidebarOpen(true)} />
 

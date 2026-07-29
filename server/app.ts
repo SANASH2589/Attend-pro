@@ -14,6 +14,8 @@ import dashboardRouter from './routes/dashboard';
 import attendanceRouter from './routes/attendance';
 import databaseRouter from './routes/database';
 import smsRoutes from './routes/sms.routes';
+import notificationRoutes from './routes/notifications';
+
 
 // ============================================================
 // Create Express Application
@@ -65,6 +67,7 @@ app.use('/api/staff/attendance', attendanceRouter);
 // /test is open for initial verification; /send requires super_admin
 // ============================================================
 app.use('/api/sms', smsRoutes);
+app.use('/api/v1/notifications', notificationRoutes);
 
 // ============================================================
 // Health Check Endpoint

@@ -30,18 +30,26 @@ router.use(superAdminOnly);
 
 // Zod schemas for input validation
 const studentSchema = z.object({
-  roll_number: z.string().min(1, 'Roll number is required'),
-  full_name: z.string().min(1, 'Full name is required'),
-  parent_phone: z.string().min(5, 'Parent phone number is required'),
-  email: z.string().email('Invalid email format').optional().nullable().or(z.literal(''))
+  roll_number:  z.string().min(1).max(50),
+  full_name:    z.string().min(2).max(100),
+  department:   z.string().max(100).optional(),
+  section:      z.string().max(20).optional(),
+  parent_phone: z.string().min(10).max(15),
+  email:        z.string().email().optional()
+                .or(z.literal(''))
+                .nullable(),
 });
 
 const updateStudentSchema = z.object({
-  roll_number: z.string().min(1, 'Roll number is required').optional(),
-  full_name: z.string().min(1, 'Full name is required').optional(),
-  parent_phone: z.string().min(5, 'Parent phone number is required').optional(),
-  email: z.string().email('Invalid email format').optional().nullable().or(z.literal('')),
-  is_active: z.boolean().optional()
+  roll_number:  z.string().min(1).max(50).optional(),
+  full_name:    z.string().min(2).max(100).optional(),
+  department:   z.string().max(100).optional(),
+  section:      z.string().max(20).optional(),
+  parent_phone: z.string().min(10).max(15).optional(),
+  email:        z.string().email().optional()
+                .or(z.literal(''))
+                .nullable(),
+  is_active:    z.boolean().optional()
 });
 
 /**
@@ -52,28 +60,30 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { search, class_id } = req.query as { search?: string; class_id?: string };
 
+    // Query 1: fetch students base query
     let query = supabaseAdmin
       .from('students')
-      .select('*')
+      .select('id, roll_number, full_name, department, section, parent_phone, email, is_active, created_at, updated_at')
       .order('roll_number', { ascending: true });
 
     if (class_id) {
-      // Find students assigned to this class
+      // Find student IDs assigned to this class
       const { data: assignments, error: assignError } = await supabaseAdmin
         .from('student_class_assignments')
         .select('student_id')
         .eq('class_id', class_id);
 
-      if (assignError) throw assignError;
+      if (assignError) {
+        console.error('[Students GET] Assignment error:', assignError.message);
+        res.status(500).json({ message: assignError.message });
+        return;
+      }
 
-      const studentIds = (assignments || []).map((a: { student_id: string }) => a.student_id);
-      
-      // If no students are assigned to this class, we should return an empty array
+      const studentIds = (assignments || []).map((a: any) => a.student_id);
       if (studentIds.length === 0) {
         res.json([]);
         return;
       }
-      
       query = query.in('id', studentIds);
     }
 
@@ -81,14 +91,62 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       query = query.or(`full_name.ilike.%${search}%,roll_number.ilike.%${search}%`);
     }
 
-    const { data: students, error } = await query;
-    if (error) throw error;
+    const { data: students, error: sErr } = await query;
 
-    res.json(students);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('Error fetching students list:', message);
-    res.status(500).json({ message: 'Failed to retrieve student records.' });
+    if (sErr) {
+      console.error('[Students GET] Supabase error:', JSON.stringify(sErr, null, 2));
+      res.status(500).json({ 
+        message: sErr.message,
+        details: sErr.details,
+        hint:    sErr.hint
+      });
+      return;
+    }
+
+    // Query 2: fetch assignments for matched students
+    const studentIds = (students || []).map(s => s.id);
+    let assignments: any[] = [];
+    if (studentIds.length > 0) {
+      const { data: assignData, error: aErr } = await supabaseAdmin
+        .from('student_class_assignments')
+        .select('student_id, classes(name)')
+        .in('student_id', studentIds);
+
+      if (aErr) {
+        console.error('[Students GET] Assignments fetch error:', aErr.message);
+        res.status(500).json({ message: aErr.message });
+        return;
+      }
+      assignments = assignData || [];
+    }
+
+    // Build lookup map
+    const classMap: Record<string, string> = {};
+    assignments.forEach((a: any) => {
+      classMap[a.student_id] = a.classes?.name || null;
+    });
+
+    // Merge
+    const result = (students || []).map(s => ({
+      id:             s.id,
+      roll_number:    s.roll_number,
+      full_name:      s.full_name,
+      department:     s.department || null,
+      section:        s.section || null,
+      parent_phone:   s.parent_phone,
+      email:          s.email || null,
+      is_active:      s.is_active,
+      assigned_class: classMap[s.id] || null,
+      created_at:     s.created_at,
+      updated_at:     s.updated_at || s.created_at,
+    }));
+
+    res.json(result);
+  } catch (err: any) {
+    console.error('[Students GET] Exception:', err.message, err.stack);
+    res.status(500).json({ 
+      message: err.message 
+    });
   }
 });
 
@@ -104,12 +162,16 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const studentData: Record<string, unknown> = { ...parseResult.data };
-    
-    // Normalize empty email string to null
-    if (studentData.email === '') {
-      studentData.email = null;
-    }
+    const data = parseResult.data;
+    const studentData = {
+      roll_number:  data.roll_number,
+      full_name:    data.full_name,
+      department:   data.department || null,
+      section:      data.section || null,
+      parent_phone: data.parent_phone,
+      email:        data.email || null,
+      is_active:    true,
+    };
 
     // Check for roll number conflict
     const { data: existingStudent, error: checkError } = await supabaseAdmin
@@ -146,18 +208,49 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 router.put('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const parseResult = updateStudentSchema.safeParse(req.body);
-    if (!parseResult.success) {
-      res.status(400).json({ message: parseResult.error.errors[0].message });
+
+    // Validate - only allow known fields
+    const updateSchema = z.object({
+      roll_number:  z.string().min(1).max(50).optional(),
+      full_name:    z.string().min(2).max(100).optional(),
+      department:   z.string().max(100).nullable().optional(),
+      section:      z.string().max(20).nullable().optional(),
+      parent_phone: z.string().min(10).max(15).optional(),
+      email:        z.string().email().nullable()
+                    .optional()
+                    .or(z.literal('')),
+      is_active:    z.boolean().optional(),
+    });
+
+    const parsed = updateSchema.safeParse(req.body);
+    
+    if (!parsed.success) {
+      res.status(400).json({
+        message: parsed.error.errors[0].message,
+        errors:  parsed.error.issues
+      });
       return;
     }
 
-    const updateData: Record<string, unknown> = { ...parseResult.data };
+    // Build update object — only include fields that were actually sent
+    const updateData: Record<string, any> = {};
     
-    // Normalize empty email string to null
-    if (updateData.email === '') {
-      updateData.email = null;
-    }
+    if (parsed.data.roll_number !== undefined)
+      updateData.roll_number = parsed.data.roll_number;
+    if (parsed.data.full_name !== undefined)
+      updateData.full_name = parsed.data.full_name;
+    if (parsed.data.department !== undefined)
+      updateData.department = parsed.data.department;
+    if (parsed.data.section !== undefined)
+      updateData.section = parsed.data.section;
+    if (parsed.data.parent_phone !== undefined)
+      updateData.parent_phone = parsed.data.parent_phone;
+    if (parsed.data.email !== undefined)
+      updateData.email = parsed.data.email || null;
+    if (parsed.data.is_active !== undefined)
+      updateData.is_active = parsed.data.is_active;
+
+    console.log('[Students PUT] Updating:', id, updateData);
 
     // Verify student exists
     const { data: existingStudent, error: checkError } = await supabaseAdmin
@@ -193,13 +286,21 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[Students PUT] Error:', JSON.stringify(error, null, 2));
+      res.status(500).json({ 
+        message: error.message,
+        hint:    error.hint 
+      });
+      return;
+    }
 
-    res.json(updatedStudent);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('Error updating student profile:', message);
-    res.status(500).json({ message: 'Failed to update student profile.' });
+    res.status(200).json(updatedStudent);
+  } catch (err: any) {
+    console.error('[Students PUT] Exception:', err.message);
+    res.status(500).json({ 
+      message: err.message 
+    });
   }
 });
 
@@ -209,66 +310,66 @@ router.put('/:id', async (req: Request, res: Response): Promise<void> => {
  */
 router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = req.params.id as string;
+    const { id } = req.params;
 
-    // Check student exists
-    const { data: student, error: findError } = await supabaseAdmin
-      .from('students')
-      .select('id, full_name')
-      .eq('id', id)
-      .single();
+    // Check if student has attendance records
+    const { data: records } = await supabaseAdmin
+      .from('attendance_records')
+      .select('id')
+      .eq('student_id', id)
+      .limit(1);
 
-    if (findError || !student) {
-      res.status(404).json({
-        success: false,
-        message: 'Student not found'
+    if (records && records.length > 0) {
+      // Has attendance history — soft delete only
+      const { error } = await supabaseAdmin
+        .from('students')
+        .update({ is_active: false })
+        .eq('id', id);
+
+      if (error) throw new Error(error.message);
+
+      res.status(200).json({
+        message: 
+          'Student deactivated. Cannot permanently ' +
+          'delete a student with attendance records.',
+        soft_deleted: true
       });
       return;
     }
 
-    // Delete in correct FK dependency order
-    
-    // 1. Delete sms_logs where student_id = id
-    await supabaseAdmin
-      .from('sms_logs')
-      .delete()
-      .eq('student_id', id);
-
-    // 2. Delete attendance_records where student_id = id
-    await supabaseAdmin
-      .from('attendance_records')
-      .delete()
-      .eq('student_id', id);
-
-    // 3. Delete student_class_assignments
+    // No attendance records — safe to hard delete
+    // First remove class assignment if exists
     await supabaseAdmin
       .from('student_class_assignments')
       .delete()
       .eq('student_id', id);
 
-    // 4. Delete student
-    const { error: deleteError } = await supabaseAdmin
+    // Also delete any sms logs associated with the student (if any)
+    await supabaseAdmin
+      .from('sms_logs')
+      .delete()
+      .eq('student_id', id);
+
+    // Then delete the student
+    const { error } = await supabaseAdmin
       .from('students')
       .delete()
       .eq('id', id);
 
-    if (deleteError) {
-      res.status(500).json({
-        success: false,
-        message: 'Failed to delete student',
-        error: deleteError.message
-      });
-      return;
-    }
+    if (error) throw new Error(error.message);
 
     res.status(200).json({
-      success: true,
-      message: `${student.full_name} and all related records have been deleted.`
+      message: 'Student deleted successfully.',
+      soft_deleted: false
     });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('Error deleting student:', message);
-    res.status(500).json({ message: 'Failed to delete student record.' });
+    return;
+
+  } catch (err: any) {
+    console.error('[Students DELETE]', err.message);
+    res.status(500).json({ 
+      message: err.message 
+    });
+    return;
   }
 });
 
@@ -278,15 +379,21 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
 function normalizeKeys(row: Record<string, unknown>): Partial<NormalizedImportRow> {
   const normalized: Partial<NormalizedImportRow> = {};
   for (const key of Object.keys(row)) {
-    const k = key.toLowerCase().trim().replace(/[\s_-]+/g, '');
-    if (k === 'rollnumber' || k === 'rollno' || k === 'roll' || k === 'roll_number') {
+    const k = key.toLowerCase().trim().replace(/[\s_.-]+/g, '');
+    if (k === 'rollnumber' || k === 'rollno' || k === 'rollno.' || k === 'roll' || k === 'roll_number') {
       normalized.roll_number = String(row[key]).trim();
     } else if (k === 'fullname' || k === 'name' || k === 'studentname' || k === 'full_name') {
       normalized.full_name = String(row[key]).trim();
-    } else if (k === 'parentphone' || k === 'parentphone_number' || k === 'phone' || k === 'parentmobile' || k === 'parent_phone') {
+    } else if (k === 'parentphone' || k === 'parentphone_number' || k === 'phone' || k === 'parentmobile' || k === 'parent_phone' || k === 'mobile') {
       normalized.parent_phone = String(row[key]).trim();
     } else if (k === 'email' || k === 'emailid' || k === 'email_id') {
       normalized.email = String(row[key]).trim() || null;
+    } else if (k === 'classid' || k === 'class_id') {
+      normalized.class_id = String(row[key]).trim() || null;
+    } else if (k === 'department' || k === 'dept') {
+      normalized.department = String(row[key]).trim() || null;
+    } else if (k === 'section' || k === 'sec') {
+      normalized.section = String(row[key]).trim() || null;
     }
   }
   return normalized;
@@ -344,9 +451,8 @@ router.post('/import', upload.single('file'), async (req: Request, res: Response
       ...normalizeKeys(row)
     }));
 
-    // 2. Perform validations
     const errors: ImportValidationError[] = [];
-    const validRows: { roll_number: string; full_name: string; parent_phone: string; email: string | null; is_active: boolean }[] = [];
+    const validRows: { roll_number: string; full_name: string; department?: string | null; section?: string | null; parent_phone: string; email: string | null; is_active: boolean }[] = [];
     const rollNumbersSeenInImport = new Set<string>();
 
     // Fetch existing roll numbers from DB to verify duplicate conflicts
@@ -401,6 +507,8 @@ router.post('/import', upload.single('file'), async (req: Request, res: Response
         validRows.push({
           roll_number: row.roll_number!,
           full_name: row.full_name!,
+          department: row.department || null,
+          section: row.section || null,
           parent_phone: row.parent_phone!,
           email: row.email || null,
           is_active: true
@@ -497,7 +605,7 @@ router.post('/import-preview', upload.single('file'), async (req: Request, res: 
     }));
 
     const errors: ImportValidationError[] = [];
-    const validRows: { roll_number: string; full_name: string; parent_phone: string; email: string | null; is_active: boolean }[] = [];
+    const validRows: { roll_number: string; full_name: string; department?: string | null; section?: string | null; parent_phone: string; email: string | null; is_active: boolean; class_id?: string | null; rawIndex?: number }[] = [];
     const rollNumbersSeenInImport = new Set<string>();
 
     const { data: dbStudents, error: dbErr } = await supabaseAdmin
@@ -551,10 +659,14 @@ router.post('/import-preview', upload.single('file'), async (req: Request, res: 
         validRows.push({
           roll_number: row.roll_number!,
           full_name: row.full_name!,
+          department: row.department || null,
+          section: row.section || null,
           parent_phone: row.parent_phone!,
           email: row.email || null,
-          is_active: true
-        });
+          is_active: true,
+          class_id: row.class_id || null,
+          rawIndex: row.rawIndex
+        } as any);
       }
     }
 
@@ -589,18 +701,61 @@ router.post('/import-save', async (req: Request, res: Response): Promise<void> =
       return;
     }
 
+    const studentsToInsert = students.map((s: any) => {
+      const { class_id, rawIndex, ...studentData } = s;
+      return studentData;
+    });
+
     const { data: insertedStudents, error: insertError } = await supabaseAdmin
       .from('students')
-      .insert(students)
+      .insert(studentsToInsert)
       .select();
 
     if (insertError) {
       throw insertError;
     }
 
+    const warnings: string[] = [];
+    const { data: classesList } = await supabaseAdmin
+      .from('classes')
+      .select('id, name');
+    const classesMap = new Map((classesList || []).map((c: any) => [c.id, c.name]));
+
+    for (const student of (insertedStudents || [])) {
+      const originalRow = students.find((s: any) => s.roll_number === student.roll_number);
+      if (originalRow && originalRow.class_id) {
+        const classId = originalRow.class_id;
+        const rawIndex = originalRow.rawIndex || 'N/A';
+
+        const { data: existingAssignment } = await supabaseAdmin
+          .from('student_class_assignments')
+          .select('class_id, classes(name)')
+          .eq('student_id', student.id)
+          .maybeSingle();
+
+        if (existingAssignment) {
+          const currentClassName = (existingAssignment.classes as any)?.name || 'a class';
+          warnings.push(`Row ${rawIndex}: Student already assigned to "${currentClassName}" — class assignment skipped.`);
+        } else {
+          if (classesMap.has(classId)) {
+            const { error: assignErr } = await supabaseAdmin
+              .from('student_class_assignments')
+              .insert({ student_id: student.id, class_id: classId });
+            if (assignErr) {
+              console.error(`Failed to assign student ${student.full_name} to class ${classId}:`, assignErr.message);
+              warnings.push(`Row ${rawIndex}: Failed to assign student to class — ${assignErr.message}.`);
+            }
+          } else {
+            warnings.push(`Row ${rawIndex}: Class ID "${classId}" not found — class assignment skipped.`);
+          }
+        }
+      }
+    }
+
     res.json({
       success: true,
-      importedCount: insertedStudents!.length
+      importedCount: insertedStudents!.length,
+      warnings
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useAuth from '../../hooks/useAuth';
 import { Bell, Menu, LogOut, HelpCircle } from 'lucide-react';
-import SearchBar from './SearchBar';
+import { NotificationBell } from '../ui/NotificationBell';
 
 export interface NavbarProps {
   onMenuClick?: () => void;
@@ -72,7 +72,17 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
   const dropdownItems = getDropdownItems();
 
   return (
-    <header className="h-16 w-full border-b border-slate-200/60 bg-white/80 backdrop-blur-md sticky top-0 z-40 px-6 flex items-center justify-between">
+    <header 
+      className="w-full bg-white/80 backdrop-blur-md sticky top-0 z-40 flex items-center justify-between"
+      style={{
+        height:         72,
+        display:        'flex',
+        alignItems:     'center',  // vertically center
+        justifyContent: 'space-between',
+        padding:        '0 24px',
+        borderBottom:   '1px solid #E2E8F0',
+      }}
+    >
       {/* Left side: Title and Mobile Toggle */}
       <div className="flex items-center gap-3">
         <button
@@ -88,20 +98,15 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
         </h2>
       </div>
 
-      {/* Right side: Mock Search, Notifications, Avatar */}
-      <div className="flex items-center gap-4.5">
-        {/* Mock Search Bar UI — only for super admin */}
-        {role === 'super_admin' && (
-          <div className="hidden md:block w-72">
-            <SearchBar placeholder="Search students, staff, classes..." />
-          </div>
-        )}
-
-        {/* Notifications Icon (Mock) */}
-        <button className="relative p-2 rounded-xl text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 border border-transparent hover:border-slate-200/60">
-          <Bell className="w-5 h-5" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-blue-600 rounded-full ring-2 ring-white" />
-        </button>
+      {/* Right side: Bell + Avatar */}
+      <div 
+        style={{
+          display:        'flex',
+          alignItems:     'center',
+          gap:            12,
+        }}
+      >
+        <NotificationBell />
 
         {/* User Profile Dropdown */}
         <div className="relative">
@@ -109,7 +114,10 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
             onClick={() => setShowProfileDropdown(!showProfileDropdown)}
             className="flex items-center gap-2 p-1 pr-3 rounded-full hover:bg-slate-50 transition-colors focus:outline-none border border-slate-100 cursor-pointer"
           >
-            <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold overflow-hidden border border-slate-200 text-xs select-none">
+            <div 
+              className="rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold overflow-hidden border border-slate-200 text-xs select-none"
+              style={{ width: 40, height: 40 }}
+            >
               {getInitials(user?.name)}
             </div>
             <span className="text-xs font-semibold text-slate-700 hidden lg:block select-none">

@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../../lib/supabase';
 import { sendSMS } from './sms.service';
+import { createNotification } from '../../lib/notificationHelper';
 
 export interface SmsNotificationSummary {
   total:   number;
@@ -40,6 +41,7 @@ export async function sendAttendanceNotifications(
         id,
         session_date,
         session_type,
+        created_by,
         classes ( name )
       `)
       .eq('id', sessionId)
@@ -255,6 +257,19 @@ export async function sendAttendanceNotifications(
   console.log(
     '[SMS] ══════════════════════════════\n'
   );
+
+  if (summary.sent > 0) {
+    const adminId = (session as any)?.created_by;
+    if (adminId) {
+      await createNotification({
+        userId:  adminId,
+        title:   'SMS Notifications Sent',
+        message: `${summary.sent} parents notified, ${summary.failed} failed.`,
+        type:    summary.failed > 0 
+                 ? 'sms_failed' : 'sms_sent'
+      });
+    }
+  }
 
   return summary;
 }

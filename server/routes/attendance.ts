@@ -4,6 +4,7 @@ import authMiddleware from '../middleware/auth';
 import { getStudentAttendanceStats, getClassAttendanceStats } from '../lib/attendanceStats';
 import { sendAttendanceNotifications } from '../services/sms/smsOrchestrator';
 import type { SessionState, SessionStatus, ClassConfig } from '../types';
+import { createNotification } from '../lib/notificationHelper';
 
 const router = express.Router();
 
@@ -762,6 +763,30 @@ router.put('/session/:sessionId/lock', superAdminOnly, async (req: Request, res:
       .single();
 
     if (error) throw error;
+
+    // Fetch class details to get className for the notification
+    let className = 'Class';
+    if (updated?.class_id) {
+      try {
+        const { data: classData } = await supabaseAdmin
+          .from('classes')
+          .select('name')
+          .eq('id', updated.class_id)
+          .single();
+        if (classData) {
+          className = classData.name;
+        }
+      } catch (err: any) {
+        console.error('[Notifications] Failed to fetch class name for session lock notification:', err.message);
+      }
+    }
+
+    await createNotification({
+      userId:  req.user!.id,
+      title:   'Session Locked',
+      message: `${className} ${updated.session_type} session locked for ${updated.session_date}.`,
+      type:    'session_locked'
+    });
 
     // Fire and forget — non-blocking
     // Attendance lock completes instantly

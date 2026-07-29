@@ -18,6 +18,12 @@ export const assignmentsApi = {
     });
   },
 
+  async getUnassignedStudents(): Promise<any> {
+    return request('/api/super-admin/assignments/students/unassigned', {
+      method: 'GET'
+    });
+  },
+
   async assignStudent(studentId: string, classId: string): Promise<AssignStudentResponse> {
     return request('/api/super-admin/assignments/students', {
       method: 'POST',

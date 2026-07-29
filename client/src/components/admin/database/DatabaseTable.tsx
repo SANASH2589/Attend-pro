@@ -126,15 +126,11 @@ export default function DatabaseTable({
             {viewType === 'students' ? (
               <>
                 {renderHeader('Roll Number', 'roll_number')}
-                {renderHeader('Student Name', 'full_name')}
+                {renderHeader('Name', 'full_name')}
                 {renderHeader('Dept', 'department')}
-                {renderHeader('Year', 'year')}
                 {renderHeader('Sec', 'section')}
-                {renderHeader('Gender', 'gender')}
-                {renderHeader('Parent Name', 'parent_name')}
-                {renderHeader('Parent Mobile', 'parent_phone')}
-                {renderHeader('Student Mobile', 'student_phone')}
-                {renderHeader('Email Address', 'email')}
+                {renderHeader('Parent Phone', 'parent_phone')}
+                {renderHeader('Email', 'email')}
                 {renderHeader('Assigned Class', 'assigned_class')}
                 {renderHeader('Status', 'status')}
                 {renderHeader('Created', 'created_at')}
@@ -191,14 +187,10 @@ export default function DatabaseTable({
                   <>
                     <td className="px-5 py-3.5 font-mono font-bold text-slate-800">{row.roll_number}</td>
                     <td className="px-5 py-3.5 font-bold text-slate-700">{row.full_name}</td>
-                    <td className="px-5 py-3.5 font-semibold text-slate-500">{row.department}</td>
-                    <td className="px-5 py-3.5 font-semibold text-slate-500">Year {row.year}</td>
-                    <td className="px-5 py-3.5 font-semibold text-slate-500">Sec {row.section}</td>
-                    <td className="px-5 py-3.5 text-slate-500">{row.gender}</td>
-                    <td className="px-5 py-3.5 text-slate-500">{row.parent_name}</td>
+                    <td className="px-5 py-3.5 font-semibold text-slate-500">{row.department || '—'}</td>
+                    <td className="px-5 py-3.5 font-semibold text-slate-500">{row.section || '—'}</td>
                     <td className="px-5 py-3.5 text-slate-500">{row.parent_phone}</td>
-                    <td className="px-5 py-3.5 text-slate-500">{row.student_phone || 'N/A'}</td>
-                    <td className="px-5 py-3.5 text-slate-500 truncate max-w-[150px]">{row.email || 'N/A'}</td>
+                    <td className="px-5 py-3.5 text-slate-500 truncate max-w-[150px]">{row.email || '—'}</td>
                     <td className="px-5 py-3.5">
                       <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
                         row.assigned_class === 'Unassigned'

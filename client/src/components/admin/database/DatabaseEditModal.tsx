@@ -27,6 +27,8 @@ export default function DatabaseEditModal({
         setFormData({
           full_name: record.full_name || '',
           roll_number: record.roll_number || '',
+          department: record.department || '',
+          section: record.section || '',
           email: record.email || '',
           parent_phone: record.parent_phone || '',
           is_active: record.status === 'Active'
@@ -65,6 +67,8 @@ export default function DatabaseEditModal({
       }
       if (!formData.parent_phone?.trim()) {
         temp.parent_phone = 'Parent Phone is required';
+      } else if (formData.parent_phone.trim().length < 10 || formData.parent_phone.trim().length > 15) {
+        temp.parent_phone = 'Parent Phone Number must be between 10 and 15 digits';
       }
       if (formData.email?.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
         temp.email = 'Invalid email address';
@@ -105,21 +109,9 @@ export default function DatabaseEditModal({
           </div>
         )}
 
-        {/* 1. Full Name */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[10px] font-bold text-slate-400 uppercase">Full Name</label>
-          <input
-            type="text"
-            value={formData.full_name}
-            onChange={e => handleChange('full_name', e.target.value)}
-            className="w-full bg-slate-50 border border-slate-200/60 hover:border-slate-300 focus:border-blue-500 focus:bg-white py-2 px-3.5 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none transition-all"
-          />
-          {errors.full_name && <span className="text-[10px] text-red-500 font-medium">{errors.full_name}</span>}
-        </div>
-
         {viewType === 'students' ? (
           <>
-            {/* 2. Roll Number */}
+            {/* 1. Roll Number */}
             <div className="flex flex-col gap-1.5">
               <label className="text-[10px] font-bold text-slate-400 uppercase">Roll Number</label>
               <input
@@ -131,19 +123,43 @@ export default function DatabaseEditModal({
               {errors.roll_number && <span className="text-[10px] text-red-500 font-medium">{errors.roll_number}</span>}
             </div>
 
-            {/* 3. Email */}
+            {/* 2. Name */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase">Email Address</label>
+              <label className="text-[10px] font-bold text-slate-400 uppercase">Name</label>
               <input
-                type="email"
-                value={formData.email}
-                onChange={e => handleChange('email', e.target.value)}
+                type="text"
+                value={formData.full_name}
+                onChange={e => handleChange('full_name', e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200/60 hover:border-slate-300 focus:border-blue-500 focus:bg-white py-2 px-3.5 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none transition-all"
               />
-              {errors.email && <span className="text-[10px] text-red-500 font-medium">{errors.email}</span>}
+              {errors.full_name && <span className="text-[10px] text-red-500 font-medium">{errors.full_name}</span>}
             </div>
 
-            {/* 4. Parent Phone */}
+            {/* 3. Department */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-bold text-slate-400 uppercase">Department</label>
+              <input
+                type="text"
+                value={formData.department}
+                onChange={e => handleChange('department', e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200/60 hover:border-slate-300 focus:border-blue-500 focus:bg-white py-2 px-3.5 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none transition-all"
+              />
+              {errors.department && <span className="text-[10px] text-red-500 font-medium">{errors.department}</span>}
+            </div>
+
+            {/* 4. Section */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-bold text-slate-400 uppercase">Section</label>
+              <input
+                type="text"
+                value={formData.section}
+                onChange={e => handleChange('section', e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200/60 hover:border-slate-300 focus:border-blue-500 focus:bg-white py-2 px-3.5 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none transition-all"
+              />
+              {errors.section && <span className="text-[10px] text-red-500 font-medium">{errors.section}</span>}
+            </div>
+
+            {/* 5. Parent Phone */}
             <div className="flex flex-col gap-1.5">
               <label className="text-[10px] font-bold text-slate-400 uppercase">Parent Phone Number</label>
               <input
@@ -154,10 +170,34 @@ export default function DatabaseEditModal({
               />
               {errors.parent_phone && <span className="text-[10px] text-red-500 font-medium">{errors.parent_phone}</span>}
             </div>
+
+            {/* 6. Email */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-bold text-slate-400 uppercase">Email Address</label>
+              <input
+                type="email"
+                value={formData.email}
+                onChange={e => handleChange('email', e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200/60 hover:border-slate-300 focus:border-blue-500 focus:bg-white py-2 px-3.5 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none transition-all"
+              />
+              {errors.email && <span className="text-[10px] text-red-500 font-medium">{errors.email}</span>}
+            </div>
           </>
         ) : (
           <>
-            {/* 5. Mobile Phone */}
+            {/* Staff - Full Name */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-bold text-slate-400 uppercase">Full Name</label>
+              <input
+                type="text"
+                value={formData.full_name}
+                onChange={e => handleChange('full_name', e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200/60 hover:border-slate-300 focus:border-blue-500 focus:bg-white py-2 px-3.5 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none transition-all"
+              />
+              {errors.full_name && <span className="text-[10px] text-red-500 font-medium">{errors.full_name}</span>}
+            </div>
+
+            {/* Staff - Mobile Phone */}
             <div className="flex flex-col gap-1.5">
               <label className="text-[10px] font-bold text-slate-400 uppercase">Mobile Number</label>
               <input

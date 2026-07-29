@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect } from 'react';
 import authApi from '../api/auth';
 import { User, UserRole, AuthContextType } from '../types/auth';
+import { supabase } from '../lib/supabaseClient';
 
 export const AuthContext = createContext<AuthContextType | null>(null);
 
@@ -16,12 +17,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Check if session token exists on component mount
   useEffect(() => {
     async function restoreSession() {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setLoading(false);
-        return;
-      }
       try {
+        // 1. Get current Supabase session first to ensure we have the latest token
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          localStorage.setItem('token', session.access_token);
+        }
+
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setUser(null);
+          setRole(null);
+          setLoading(false);
+          return;
+        }
+
         const profile = await authApi.me();
         setUser(profile);
         setRole(profile.role);
@@ -34,7 +44,37 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setLoading(false);
       }
     }
+
     restoreSession();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (session) {
+          localStorage.setItem('token', session.access_token);
+        } else {
+          localStorage.removeItem('token');
+        }
+
+        if (event === 'TOKEN_REFRESHED' && session) {
+          try {
+            const profile = await authApi.me();
+            setUser(profile);
+            setRole(profile.role);
+          } catch (err: any) {
+            console.error('Failed to restore profile on token refresh:', err.message);
+          }
+        }
+
+        if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setRole(null);
+          window.location.href = '/login';
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
   }, []);
 
   /**

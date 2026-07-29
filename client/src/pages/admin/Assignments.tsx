@@ -81,14 +81,18 @@ export default function Assignments() {
     setError('');
     setConfirmingUnassignId(null);
     try {
-      let data;
       if (mode === 'students') {
-        data = await assignmentsApi.getStudentsForClass(selectedClassId);
+        const [assignedRes, unassignedRes] = await Promise.all([
+          assignmentsApi.getStudentsForClass(selectedClassId),
+          assignmentsApi.getUnassignedStudents()
+        ]);
+        setAssignedList(assignedRes.assigned || []);
+        setUnassignedList(unassignedRes.students || []);
       } else {
-        data = await assignmentsApi.getStaffForClass(selectedClassId);
+        const data = await assignmentsApi.getStaffForClass(selectedClassId);
+        setAssignedList(data.assigned || []);
+        setUnassignedList(data.unassigned || []);
       }
-      setAssignedList(data.assigned || []);
-      setUnassignedList(data.unassigned || []);
     } catch (err: any) {
       setError(err.message || 'Failed to load assignment rosters.');
     } finally {
@@ -107,8 +111,13 @@ export default function Assignments() {
   const handleAssign = async (itemId: string) => {
     setActionId(itemId);
     try {
-      await assignmentsApi.assignStaff(itemId, selectedClassId);
-      showToast('Faculty member successfully assigned to section.', 'success');
+      if (mode === 'students') {
+        await assignmentsApi.assignStudent(itemId, selectedClassId);
+        showToast('Student successfully assigned to section.', 'success');
+      } else {
+        await assignmentsApi.assignStaff(itemId, selectedClassId);
+        showToast('Faculty member successfully assigned to section.', 'success');
+      }
       fetchAssignments();
     } catch (err: any) {
       showToast(err.message || 'Failed to save assignment.', 'error');
@@ -140,10 +149,17 @@ export default function Assignments() {
     if (filteredUnassigned.length === 0) return;
     setActionId('bulk-assign');
     try {
-      await Promise.all(
-        filteredUnassigned.map(item => assignmentsApi.assignStaff(item.id, selectedClassId))
-      );
-      showToast(`Successfully assigned ${filteredUnassigned.length} faculty members.`, 'success');
+      if (mode === 'students') {
+        await Promise.all(
+          filteredUnassigned.map(item => assignmentsApi.assignStudent(item.id, selectedClassId))
+        );
+        showToast(`Successfully assigned ${filteredUnassigned.length} students.`, 'success');
+      } else {
+        await Promise.all(
+          filteredUnassigned.map(item => assignmentsApi.assignStaff(item.id, selectedClassId))
+        );
+        showToast(`Successfully assigned ${filteredUnassigned.length} faculty members.`, 'success');
+      }
       fetchAssignments();
     } catch (err: any) {
       showToast(err.message || 'Failed bulk assignment.', 'error');
@@ -439,13 +455,13 @@ export default function Assignments() {
           )}
 
           {/* Dual List Panel Layout */}
-          <div className={mode === 'students' ? "w-full" : "grid grid-cols-1 lg:grid-cols-2 gap-5 items-start"}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
             {/* Left panel: Unassigned list */}
-            {mode === 'staff' && (
+            {(mode === 'staff' || mode === 'students') && (
               <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm flex flex-col overflow-hidden">
                 <div className="p-4 bg-slate-50/50 border-b border-slate-100 flex items-center justify-between select-none">
                   <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Unassigned Faculty
+                    {mode === 'students' ? 'Unassigned Students' : 'Unassigned Faculty'}
                   </h3>
                   <div className="flex items-center gap-3">
                     {filteredUnassigned.length > 0 && (
@@ -468,7 +484,7 @@ export default function Assignments() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400 shrink-0" />
                     <input
                       type="text"
-                      placeholder="Search available faculty..."
+                      placeholder={mode === 'students' ? "Search available students..." : "Search available faculty..."}
                       value={searchLeft}
                       onChange={(e) => setSearchLeft(e.target.value)}
                       className="w-full pl-9.5 pr-4 py-2 bg-slate-50 hover:bg-slate-100/30 border border-slate-200/40 rounded-xl text-xs font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all placeholder-slate-400"
@@ -492,7 +508,7 @@ export default function Assignments() {
                         <div className="flex flex-col min-w-0">
                           <span className="text-xs font-semibold text-slate-700 truncate">{item.full_name}</span>
                           <span className="text-[10px] text-slate-400 font-mono mt-0.5">
-                            {item.email}
+                            {mode === 'students' ? `Roll: ${item.roll_number}` : item.email}
                           </span>
                         </div>
                         

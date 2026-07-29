@@ -251,18 +251,31 @@ export default function Database() {
 
   // Common export utility
   const handleExport = (format: 'csv' | 'excel' | 'pdf', dataset: any[]) => {
+    const formatDate = (dateStr?: string) => {
+      if (!dateStr) return '—';
+      try {
+        return new Date(dateStr).toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        });
+      } catch (_err) {
+        return dateStr;
+      }
+    };
+
     if (format === 'pdf') {
       const printWindow = window.open('', '_blank');
       if (!printWindow) return;
       
       const title = `${viewType === 'students' ? 'Students' : 'Staff'} Database Export`;
       const headers = viewType === 'students' 
-        ? ['Roll Number', 'Name', 'Department', 'Year', 'Section', 'Gender', 'Email', 'Parent Mobile', 'Assigned Class', 'Status']
+        ? ['Roll Number', 'Name', 'Department', 'Section', 'Email', 'Parent Phone', 'Assigned Class', 'Status', 'Created', 'Updated']
         : ['Staff ID', 'Name', 'Department', 'Designation', 'Email', 'Mobile', 'Assigned Classes', 'Status'];
 
       const rowsHtml = dataset.map(row => {
         const cols = viewType === 'students'
-          ? [row.roll_number, row.full_name, row.department, `Year ${row.year}`, `Sec ${row.section}`, row.gender, row.email || 'N/A', row.parent_phone, row.assigned_class, row.status]
+          ? [row.roll_number, row.full_name, row.department || '—', row.section || '—', row.email || '—', row.parent_phone, row.assigned_class, row.status, formatDate(row.created_at), formatDate(row.last_updated)]
           : [row.staff_id, row.full_name, row.department, row.designation, row.email, row.phone || 'N/A', row.assigned_classes, row.status];
         return `<tr>${cols.map(c => `<td style="padding: 8px; border: 1px solid #ddd;">${c}</td>`).join('')}</tr>`;
       }).join('');
@@ -299,7 +312,7 @@ export default function Database() {
     }
 
     const headers = viewType === 'students'
-      ? ['Roll Number', 'Student Name', 'Department', 'Year', 'Section', 'Gender', 'Parent Name', 'Parent Mobile Number', 'Student Mobile Number', 'Email', 'Assigned Class', 'Status', 'Created Date', 'Last Updated']
+      ? ['Roll Number', 'Name', 'Dept', 'Sec', 'Parent Phone', 'Email', 'Assigned Class', 'Status', 'Created', 'Updated']
       : ['Staff ID', 'Staff Name', 'Department', 'Designation', 'Email', 'Mobile Number', 'Assigned Classes', 'Role', 'Status', 'Created Date', 'Last Updated'];
 
     const csvRows = [];
@@ -307,7 +320,7 @@ export default function Database() {
 
     dataset.forEach(row => {
       const values = viewType === 'students'
-        ? [row.roll_number, row.full_name, row.department, row.year, row.section, row.gender, row.parent_name, row.parent_phone, row.student_phone, row.email || '', row.assigned_class, row.status, row.created_at, row.last_updated]
+        ? [row.roll_number, row.full_name, row.department || '', row.section || '', row.parent_phone, row.email || '', row.assigned_class, row.status, formatDate(row.created_at), formatDate(row.last_updated)]
         : [row.staff_id, row.full_name, row.department, row.designation, row.email, row.phone || '', row.assigned_classes, row.role, row.status, row.created_at, row.last_updated];
 
       csvRows.push(values.map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(','));

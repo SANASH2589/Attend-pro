@@ -24,6 +24,8 @@ export default function StudentForm({
   const [formData, setFormData] = useState({
     roll_number: '',
     full_name: '',
+    department: '',
+    section: '',
     parent_phone: '',
     email: ''
   });
@@ -36,6 +38,8 @@ export default function StudentForm({
       setFormData({
         roll_number: student.roll_number || '',
         full_name: student.full_name || '',
+        department: student.department || '',
+        section: student.section || '',
         parent_phone: student.parent_phone || '',
         email: student.email || ''
       });
@@ -43,6 +47,8 @@ export default function StudentForm({
       setFormData({
         roll_number: '',
         full_name: '',
+        department: '',
+        section: '',
         parent_phone: '',
         email: ''
       });
@@ -72,8 +78,8 @@ export default function StudentForm({
 
     if (!formData.parent_phone.trim()) {
       newErrors.parent_phone = 'Parent phone number is required';
-    } else if (formData.parent_phone.trim().length < 5) {
-      newErrors.parent_phone = 'Please enter a valid phone number';
+    } else if (formData.parent_phone.trim().length < 10 || formData.parent_phone.trim().length > 15) {
+      newErrors.parent_phone = 'Parent Phone Number must be between 10 and 15 digits';
     }
 
     if (formData.email && !/\S+@\S+\.\S+/.test(formData.email)) {
@@ -107,49 +113,75 @@ export default function StudentForm({
       )}
 
       <Input
-        label="Roll Number / ID"
+        label="Roll Number"
         id="roll_number"
         value={formData.roll_number}
         onChange={handleChange}
-        placeholder="e.g. CS-2026-042"
+        placeholder="e.g. ITA2361"
         error={errors.roll_number}
         required
         disabled={loading}
+        autoComplete="off"
       />
 
       <Input
-        label="Student Full Name"
+        label="Student Name"
         id="full_name"
         value={formData.full_name}
         onChange={handleChange}
-        placeholder="e.g. Liam Henderson"
+        placeholder="e.g. Sanjai S"
         error={errors.full_name}
         required
         disabled={loading}
+        autoComplete="name"
       />
 
       <Input
-        label="Parent's Contact Phone"
+        label="Department"
+        id="department"
+        value={formData.department}
+        onChange={handleChange}
+        placeholder="e.g. Information Technology"
+        error={errors.department}
+        disabled={loading}
+        autoComplete="off"
+      />
+
+      <Input
+        label="Section"
+        id="section"
+        value={formData.section}
+        onChange={handleChange}
+        placeholder="e.g. A"
+        error={errors.section}
+        disabled={loading}
+        autoComplete="off"
+      />
+
+      <Input
+        label="Parent Phone Number"
         id="parent_phone"
         type="tel"
         value={formData.parent_phone}
         onChange={handleChange}
-        placeholder="e.g. +1 (555) 012-3456"
+        placeholder="e.g. 9876543210"
         error={errors.parent_phone}
         required
         disabled={loading}
-        helpText="Notifications will be dispatched to this mobile number"
+        autoComplete="tel"
+        helpText="SMS notifications sent to this number"
       />
 
       <Input
-        label="Student Email Address"
+        label="Email Address"
         id="email"
         type="email"
         value={formData.email}
         onChange={handleChange}
-        placeholder="e.g. liam.h@student.edu (Optional)"
+        placeholder="e.g. student@college.edu"
         error={errors.email}
         disabled={loading}
+        autoComplete="email"
       />
 
       <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 mt-2">

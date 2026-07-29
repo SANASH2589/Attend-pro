@@ -5,15 +5,16 @@ import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
 import StudentForm from '../../components/admin/StudentForm';
 import BulkImportModal from '../../components/admin/BulkImportModal';
-import studentsApi from '../../api/students';
+import studentsApi, { deleteStudent } from '../../api/students';
 import classesApi from '../../api/classes';
 import { useToast } from '../../context/ToastContext';
-import { Search, UserPlus, FileUp, Filter, AlertCircle, Trash2, Pencil, UserX } from 'lucide-react';
+import { Search, UserPlus, FileUp, Filter, AlertCircle, Pencil, UserX, Trash2 } from 'lucide-react';
 import { Student as StudentType } from '../../types/student';
 import { Class as ClassType } from '../../types/class';
 
 interface ExtendedStudent extends StudentType {
   is_active?: boolean;
+  class_name?: string | null;
 }
 
 /**
@@ -35,9 +36,8 @@ export default function Students() {
   const [editingStudent, setEditingStudent] = useState<ExtendedStudent | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
 
-  // Inline deactivation confirmations
   const [confirmingDeactivateId, setConfirmingDeactivateId] = useState<string | null>(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -122,89 +122,143 @@ export default function Students() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDeleteStudent = async (studentId: string) => {
     setActionLoading(true);
     try {
-      const result = await studentsApi.deleteStudent(id);
+      const response = await deleteStudent(studentId);
       
-      if (result.success) {
-        setStudents(prev => prev.filter(s => s.id !== id));
-        showToast(result.message, 'success');
-      }
-    } catch (error: any) {
-      if (error.status === 409 || (error.message && error.message.includes('Deactivate instead'))) {
+      if (response.soft_deleted) {
         showToast(
-          error.message || 'Cannot delete — student has attendance history. Use Deactivate instead.',
+          'Student has attendance records — marked as inactive instead of deleted.',
           'warning'
         );
       } else {
-        showToast(error.message || 'Failed to delete student', 'error');
+        showToast('Student deleted successfully.', 'success');
       }
+
+      setConfirmDeleteId(null);
+      fetchData(); // refresh the list
+    } catch (err: any) {
+      showToast(
+        err.message || 'Failed to delete student.',
+        'error'
+      );
+      setConfirmDeleteId(null);
     } finally {
-      setDeleteConfirmId(null);
       setActionLoading(false);
     }
   };
 
+
+
   const columns: TableColumn<ExtendedStudent>[] = [
     {
-      label: 'Roll Number',
+      label: 'Roll No.',
       key: 'roll_number',
       render: (row) => (
-        <span className="font-mono font-bold text-slate-800 tracking-tight">{row.roll_number}</span>
+        <span style={{ width: '100px' }} className="inline-block font-mono text-[13px] text-[#2563EB] font-medium select-text">
+          {row.roll_number}
+        </span>
       )
     },
     {
-      label: 'Student Name',
+      label: 'Name',
       key: 'full_name',
       render: (row) => (
-        <div className="flex flex-col">
-          <span className="font-semibold text-slate-800">{row.full_name}</span>
-          <span className="text-[10px] text-slate-400 font-mono mt-0.5">UUID: {row.id.slice(0, 8)}...</span>
-        </div>
+        <span className="text-[14px] text-[#0F172A] font-medium">
+          {row.full_name}
+        </span>
       )
     },
     {
-      label: 'Parent Contact No',
+      label: 'Dept',
+      key: 'department',
+      render: (row) => (
+        <span className="text-[13px] text-[#475569] font-medium">
+          {row.department || '—'}
+        </span>
+      )
+    },
+    {
+      label: 'Sec',
+      key: 'section',
+      render: (row) => (
+        <span className="text-[13px] text-[#475569] font-medium">
+          {row.section || '—'}
+        </span>
+      )
+    },
+    {
+      label: 'Parent Phone',
       key: 'parent_phone',
       render: (row) => (
-        <span className="font-medium text-slate-600">{row.parent_phone}</span>
+        <span className="text-[13px] text-[#475569] font-medium font-mono select-text">
+          {row.parent_phone}
+        </span>
       )
     },
     {
-      label: 'Email ID',
+      label: 'Email',
       key: 'email',
+      render: (row) => {
+        const email = row.email;
+        if (!email) return <span className="text-[13px] text-[#475569] font-medium">—</span>;
+        return (
+          <span 
+            className="text-[13px] text-[#475569] font-medium block max-w-[160px] truncate select-text"
+            title={email}
+          >
+            {email}
+          </span>
+        );
+      }
+    },
+    {
+      label: 'Assigned Class',
+      key: 'assigned_class',
       render: (row) => (
-        <span className="font-medium text-slate-500">{row.email || <span className="text-slate-300 italic">No email</span>}</span>
+        row.assigned_class ? (
+          <Badge variant="info">
+            {row.assigned_class}
+          </Badge>
+        ) : (
+          <span className="text-slate-400/70 italic font-medium text-xs">—</span>
+        )
       )
     },
     {
       label: 'Status',
       key: 'is_active',
       render: (row) => (
-        <Badge variant={row.is_active ? 'success' : 'danger'}>
-          {row.is_active ? 'Active' : 'Deactivated'}
+        <Badge variant={row.is_active ? 'success' : 'secondary'}>
+          {row.is_active ? 'Active' : 'Inactive'}
         </Badge>
       )
+    },
+    {
+      label: 'Created',
+      key: 'created_at',
+      render: (row) => {
+        if (!row.created_at) return <span className="text-[12px] text-[#94A3B8]">—</span>;
+        try {
+          return (
+            <span className="text-[12px] text-[#94A3B8] font-medium">
+              {new Date(row.created_at).toLocaleDateString('en-GB', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric'
+              })}
+            </span>
+          );
+        } catch {
+          return <span className="text-[12px] text-[#94A3B8]">—</span>;
+        }
+      }
     },
     {
       label: 'Actions',
       key: 'actions',
       render: (row) => {
-        if (!row.is_active) {
-          return (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => handleReactivate(row.id, row.full_name)}
-              disabled={actionLoading}
-              className="py-1 px-2.5 text-[11px] text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 font-semibold"
-            >
-              Reactivate
-            </Button>
-          );
-        }
-
         if (confirmingDeactivateId === row.id) {
           return (
             <div className="flex items-center gap-1.5 animate-fade-in">
@@ -215,7 +269,7 @@ export default function Students() {
                 disabled={actionLoading}
                 className="py-1 px-2.5 text-[11px]"
               >
-                Confirm Deactivate
+                Confirm
               </Button>
               <Button
                 variant="secondary"
@@ -230,21 +284,21 @@ export default function Students() {
           );
         }
 
-        if (deleteConfirmId === row.id) {
+        if (confirmDeleteId === row.id) {
           return (
             <div className="flex items-center gap-2 animate-fade-in">
-              <span className="text-xs text-red-600 font-medium">Delete + all records?</span>
+              <span className="text-[13px] text-red-600 font-medium whitespace-nowrap">Delete?</span>
               <button
-                onClick={() => handleDelete(row.id)}
+                onClick={() => handleDeleteStudent(row.id)}
                 disabled={actionLoading}
-                className="text-xs px-2 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50"
+                className="text-xs px-2 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 cursor-pointer"
               >
                 Confirm
               </button>
               <button
-                onClick={() => setDeleteConfirmId(null)}
+                onClick={() => setConfirmDeleteId(null)}
                 disabled={actionLoading}
-                className="text-xs px-2 py-1 border border-gray-200 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50"
+                className="text-xs px-2 py-1 border border-gray-200 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50 cursor-pointer"
               >
                 Cancel
               </button>
@@ -265,17 +319,26 @@ export default function Students() {
               <Pencil size={16} />
             </button>
             <button
-              onClick={() => setConfirmingDeactivateId(row.id)}
-              className="p-1.5 rounded-md text-slate-400 hover:bg-amber-50 hover:text-amber-600 transition-colors"
-              title="Deactivate"
+              onClick={() => {
+                if (row.is_active) {
+                  setConfirmingDeactivateId(row.id);
+                } else {
+                  handleReactivate(row.id, row.full_name);
+                }
+              }}
+              className={`p-1.5 rounded-md transition-colors ${
+                row.is_active 
+                  ? 'text-slate-400 hover:bg-amber-50 hover:text-amber-600' 
+                  : 'text-emerald-500 hover:bg-emerald-50 hover:text-emerald-600'
+              }`}
+              title={row.is_active ? 'Deactivate' : 'Activate'}
             >
               <UserX size={16} />
             </button>
-            <div className="w-px h-4 bg-slate-200 mx-1" />
             <button
-              onClick={() => setDeleteConfirmId(row.id)}
+              onClick={() => setConfirmDeleteId(row.id)}
               className="p-1.5 rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
-              title="Delete permanently"
+              title="Delete student"
             >
               <Trash2 size={16} />
             </button>

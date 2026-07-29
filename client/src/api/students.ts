@@ -77,4 +77,10 @@ export const studentsApi = {
   }
 };
 
+export async function deleteStudent(id: string): Promise<{ message: string; soft_deleted: boolean }> {
+  return request(`/api/super-admin/students/${id}`, {
+    method: 'DELETE'
+  });
+}
+
 export default studentsApi;

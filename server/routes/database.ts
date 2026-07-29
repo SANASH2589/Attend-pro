@@ -17,75 +17,7 @@ const superAdminOnly = (req: Request, res: Response, next: NextFunction): void =
 router.use(authMiddleware);
 router.use(superAdminOnly);
 
-interface DerivedStudentData {
-  department: string;
-  year: number;
-  section: string;
-  gender: string;
-  parent_name: string;
-  student_phone: string;
-  admission_year: number;
-  lateral_entry: string;
-  last_updated: string;
-}
 
-/**
- * Derives student fields deterministically from roll number and database attributes
- */
-function deriveStudentFields(rollNumber: string, fullName: string, parentPhone: string, createdAt: string): DerivedStudentData {
-  const rollUpper = (rollNumber || '').toUpperCase().trim();
-  const match = rollUpper.match(/^(L?)([A-Z]+)(\d{2})(\d+)$/);
-  
-  let lateral_entry = 'No';
-  let department = 'IT';
-  let section = 'A';
-  let admission_year = 2023;
-  let year = 3;
-
-  if (match) {
-    lateral_entry = match[1] === 'L' ? 'Yes' : 'No';
-    const deptSection = match[2];
-    if (deptSection.length > 1) {
-      department = deptSection.substring(0, deptSection.length - 1);
-      section = deptSection.substring(deptSection.length - 1);
-    } else {
-      department = deptSection;
-      section = 'A';
-    }
-    const batchYear = parseInt(match[3], 10);
-    admission_year = 2000 + batchYear;
-    
-    // Current academic year calculation relative to batch
-    year = 2026 - admission_year;
-    if (year <= 0) year = 1;
-    if (year > 4) year = 4;
-  }
-
-  // Deterministic gender assignment based on roll suffix
-  const digits = rollUpper.replace(/\D/g, '');
-  const lastDigit = digits ? parseInt(digits.substring(digits.length - 1), 10) : 0;
-  const gender = lastDigit % 2 === 0 ? 'Female' : 'Male';
-
-  // Deterministic Parent Name
-  const nameParts = fullName.trim().split(/\s+/);
-  const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
-  const parent_name = lastName ? `Mr. ${lastName}` : 'Guardian';
-
-  // Mock Student Mobile (derive from parent's)
-  const student_phone = parentPhone ? parentPhone.replace(/.$/, (c) => String((parseInt(c, 10) + 1) % 10)) : '';
-
-  return {
-    lateral_entry,
-    department,
-    section,
-    admission_year,
-    year,
-    gender,
-    parent_name,
-    student_phone,
-    last_updated: createdAt // fallback
-  };
-}
 
 interface DerivedStaffData {
   staff_id: string;
@@ -176,9 +108,8 @@ router.get('/students', async (req: Request, res: Response): Promise<void> => {
       attendanceStats.set(r.student_id, stats);
     });
 
-    // 4. Combine and Derive
+    // 4. Combine
     let recordsList = (students || []).map((student: any) => {
-      const derived = deriveStudentFields(student.roll_number, student.full_name, student.parent_phone, student.created_at);
       const classInfo = assignmentMap.get(student.id) || { id: '', name: 'Unassigned' };
       const stats = attendanceStats.get(student.id) || { total: 0, present: 0 };
       
@@ -188,8 +119,16 @@ router.get('/students', async (req: Request, res: Response): Promise<void> => {
       const attendance_percentage = total_sessions > 0 ? Math.round((present_count / total_sessions) * 100) : 100;
 
       return {
-        ...student,
-        ...derived,
+        id: student.id,
+        roll_number: student.roll_number,
+        full_name: student.full_name,
+        department: student.department || null,
+        section: student.section || null,
+        parent_phone: student.parent_phone,
+        email: student.email || null,
+        is_active: student.is_active,
+        created_at: student.created_at,
+        last_updated: student.updated_at || student.created_at,
         assigned_class: classInfo.name,
         assigned_class_id: classInfo.id,
         status: student.is_active ? 'Active' : 'Inactive',
@@ -208,7 +147,6 @@ router.get('/students', async (req: Request, res: Response): Promise<void> => {
         (r.roll_number || '').toLowerCase().includes(term) ||
         (r.email || '').toLowerCase().includes(term) ||
         (r.parent_phone || '').toLowerCase().includes(term) ||
-        (r.student_phone || '').toLowerCase().includes(term) ||
         (r.department || '').toLowerCase().includes(term) ||
         (r.assigned_class || '').toLowerCase().includes(term) ||
         (r.status || '').toLowerCase().includes(term)
@@ -217,34 +155,16 @@ router.get('/students', async (req: Request, res: Response): Promise<void> => {
 
     // 6. Apply Filters
     if (filterDept) {
-      recordsList = recordsList.filter(r => r.department.toLowerCase() === filterDept.toLowerCase());
-    }
-    if (filterYear) {
-      recordsList = recordsList.filter(r => String(r.year) === filterYear);
+      recordsList = recordsList.filter(r => (r.department || '').toLowerCase() === filterDept.toLowerCase());
     }
     if (filterSection) {
-      recordsList = recordsList.filter(r => r.section.toLowerCase() === filterSection.toLowerCase());
+      recordsList = recordsList.filter(r => (r.section || '').toLowerCase() === filterSection.toLowerCase());
     }
     if (filterClass) {
       recordsList = recordsList.filter(r => r.assigned_class_id === filterClass || r.assigned_class.toLowerCase() === filterClass.toLowerCase());
     }
-    if (filterGender) {
-      recordsList = recordsList.filter(r => r.gender.toLowerCase() === filterGender.toLowerCase());
-    }
     if (filterStatus) {
       recordsList = recordsList.filter(r => r.status.toLowerCase() === filterStatus.toLowerCase());
-    }
-    if (filterLateral) {
-      recordsList = recordsList.filter(r => r.lateral_entry.toLowerCase() === filterLateral.toLowerCase());
-    }
-    if (filterAttendance) {
-      if (filterAttendance === '<50') {
-        recordsList = recordsList.filter(r => r.attendance_percentage < 50);
-      } else if (filterAttendance === '50-75') {
-        recordsList = recordsList.filter(r => r.attendance_percentage >= 50 && r.attendance_percentage <= 75);
-      } else if (filterAttendance === '>75') {
-        recordsList = recordsList.filter(r => r.attendance_percentage > 75);
-      }
     }
 
     // 7. Apply Sorting

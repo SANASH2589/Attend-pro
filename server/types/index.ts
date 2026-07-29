@@ -82,8 +82,11 @@ export interface Student {
   full_name: string;
   parent_phone: string;
   email?: string | null;
+  department?: string | null;
+  section?: string | null;
   is_active: boolean;
   created_at?: string;
+  updated_at?: string;
 }
 
 export interface ClassConfig {
@@ -323,6 +326,9 @@ export interface NormalizedImportRow {
   full_name?: string;
   parent_phone?: string;
   email?: string | null;
+  class_id?: string | null;
+  department?: string | null;
+  section?: string | null;
 }
 
 // ============================================================

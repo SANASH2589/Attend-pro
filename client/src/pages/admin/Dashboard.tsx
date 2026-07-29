@@ -8,11 +8,8 @@ import {
   GraduationCap, 
   Users, 
   BookOpen, 
-  Plus, 
-  Calendar, 
   ClipboardCheck, 
   Activity,
-  ArrowRight,
   Loader2,
   AlertCircle
 } from 'lucide-react';
@@ -71,32 +68,7 @@ export default function Dashboard() {
     fetchDashboardData();
   }, []);
 
-  const quickActions = [
-    { 
-      label: "Enroll Student", 
-      icon: Plus, 
-      color: "bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-100", 
-      onClick: () => navigate('/super-admin/students') 
-    },
-    { 
-      label: "Register Faculty", 
-      icon: Users, 
-      color: "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-100", 
-      onClick: () => navigate('/super-admin/staff') 
-    },
-    { 
-      label: "Configure Classes", 
-      icon: BookOpen, 
-      color: "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-100", 
-      onClick: () => navigate('/super-admin/classes') 
-    },
-    { 
-      label: "Manage Assignments", 
-      icon: Calendar, 
-      color: "bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-100", 
-      onClick: () => navigate('/super-admin/assignments') 
-    }
-  ];
+
 
   if (loading) {
     return (
@@ -153,13 +125,13 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Middle Section: Attendance Overview + Quick Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Middle Section: Attendance Overview */}
+      <div className="w-full">
         {/* Attendance Summary */}
         <DashboardCard 
           title="Live Attendance Logs" 
           subtitle="Latest attendance checks received from staff"
-          className="lg:col-span-2 min-h-[340px]"
+          className="min-h-[340px]"
         >
           {recentSessions.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center border border-dashed border-slate-200 rounded-xl p-8 bg-slate-50/50">
@@ -217,32 +189,6 @@ export default function Dashboard() {
               </table>
             </div>
           )}
-        </DashboardCard>
-
-        {/* Quick Actions Panel */}
-        <DashboardCard 
-          title="Quick Actions" 
-          subtitle="Frequently accessed administrative operations"
-          className="h-full"
-        >
-          <div className="flex-1 flex flex-col justify-center gap-3.5 select-none">
-            {quickActions.map((action, idx) => {
-              const Icon = action.icon;
-              return (
-                <button
-                  key={idx}
-                  onClick={action.onClick}
-                  className={`w-full flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:shadow-md hover:border-transparent text-xs font-bold tracking-wide transition-all duration-200 cursor-pointer ${action.color}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Icon className="w-4 h-4 shrink-0" />
-                    <span>{action.label}</span>
-                  </div>
-                  <ArrowRight className="w-3.5 h-3.5 opacity-60" />
-                </button>
-              );
-            })}
-          </div>
         </DashboardCard>
       </div>
 

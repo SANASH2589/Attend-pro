@@ -30,6 +30,43 @@ const staffAssignmentSchema = z.object({
 });
 
 /**
+ * GET /api/v1/assignments/students/unassigned
+ * Returns all active students who are not assigned to any class section.
+ */
+router.get('/students/unassigned', async (req: Request, res: Response): Promise<void> => {
+  try {
+    // 1. Get all assigned student IDs
+    const { data: assignedIds, error: assignErr } = await supabaseAdmin
+      .from('student_class_assignments')
+      .select('student_id');
+
+    if (assignErr) throw assignErr;
+
+    const assignedStudentIds = (assignedIds || []).map((r: any) => r.student_id);
+
+    // 2. Fetch all active students NOT in the assigned list
+    let query = supabaseAdmin
+      .from('students')
+      .select('id, full_name, roll_number')
+      .eq('is_active', true)
+      .order('roll_number', { ascending: true });
+
+    if (assignedStudentIds.length > 0) {
+      query = query.not('id', 'in', `(${assignedStudentIds.join(',')})`);
+    }
+
+    const { data: students, error: studErr } = await query;
+    if (studErr) throw studErr;
+
+    res.json({ students: students || [] });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('Error fetching unassigned students:', message);
+    res.status(500).json({ message: 'Failed to retrieve unassigned student list.' });
+  }
+});
+
+/**
  * GET /api/v1/assignments/students/:class_id
  * Returns assigned and unassigned active students for the given class section.
  */
@@ -46,24 +83,32 @@ router.get('/students/:class_id', async (req: Request, res: Response): Promise<v
 
     if (studErr) throw studErr;
 
-    // 2. Fetch student assignments for this class
-    const { data: assignments, error: assignErr } = await supabaseAdmin
+    // 2. Fetch student assignments for all classes to determine who is assigned where
+    const { data: allAssignments, error: assignErr } = await supabaseAdmin
       .from('student_class_assignments')
-      .select('student_id')
-      .eq('class_id', class_id);
+      .select('student_id, class_id');
 
     if (assignErr) throw assignErr;
 
-    const assignedIds = new Set((assignments || []).map((a: { student_id: string }) => a.student_id));
+    const assignedToThisClass = new Set(
+      (allAssignments || [])
+        .filter((a: any) => a.class_id === class_id)
+        .map((a: any) => a.student_id)
+    );
+
+    const assignedToAnyClass = new Set(
+      (allAssignments || [])
+        .map((a: any) => a.student_id)
+    );
 
     // 3. Partition students
     const assigned: typeof allStudents = [];
     const unassigned: typeof allStudents = [];
 
     (allStudents || []).forEach((student: any) => {
-      if (assignedIds.has(student.id)) {
+      if (assignedToThisClass.has(student.id)) {
         assigned!.push(student);
-      } else {
+      } else if (!assignedToAnyClass.has(student.id)) {
         unassigned!.push(student);
       }
     });
@@ -90,18 +135,20 @@ router.post('/students', async (req: Request, res: Response): Promise<void> => {
 
     const { student_id, class_id } = parseResult.data;
 
-    // Check if assignment already exists
+    // Check if student is already assigned to any class
     const { data: existing, error: checkError } = await supabaseAdmin
       .from('student_class_assignments')
-      .select('id')
+      .select('id, class_id, classes(name)')
       .eq('student_id', student_id)
-      .eq('class_id', class_id)
       .maybeSingle();
 
     if (checkError) throw checkError;
 
     if (existing) {
-      res.status(409).json({ message: 'This student is already assigned to the class.' });
+      const className = (existing.classes as any)?.name || 'a class';
+      res.status(409).json({
+        message: `Student is already assigned to "${className}". Remove them from that class first before assigning to a new one.`
+      });
       return;
     }
 

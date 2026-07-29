@@ -38,12 +38,6 @@ export default function Logo({ compact = false, className = '', variant = 'light
           )}>
             Attend<span className={isDark ? "text-blue-400" : "text-blue-600"}>-Pro</span>
           </span>
-          <span className={clsx(
-            "text-[10px] font-medium uppercase tracking-widest",
-            isDark ? "text-slate-400" : "text-slate-400"
-          )}>
-            Attendance System
-          </span>
         </div>
       )}
     </div>

@@ -24,11 +24,13 @@ import Classes from '../pages/admin/Classes';
 import Assignments from '../pages/admin/Assignments';
 import AdminReports from '../pages/admin/Reports';
 import Database from '../pages/admin/Database';
+import SmsLogs from '../pages/admin/SmsLogs';
 
 // Staff Pages
 import StaffDashboard from '../pages/staff/Dashboard';
 import StaffAttendance from '../pages/staff/Attendance';
 import StaffHistory from '../pages/staff/History';
+import StaffReports from '../pages/staff/Reports';
 
 export default function AppRoutes() {
   return (
@@ -66,6 +68,7 @@ export default function AppRoutes() {
             <Route path="assignments" element={<Assignments />} />
             <Route path="reports" element={<AdminReports />} />
             <Route path="database" element={<Database />} />
+            <Route path="sms-logs" element={<SmsLogs />} />
 
             {/* NO attendance page for super admin */}
           </Route>
@@ -83,11 +86,11 @@ export default function AppRoutes() {
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<StaffDashboard />} />
             
-            <Route path="attendance/:classId" element={<StaffAttendance />} />
-            <Route path="attendance" element={<StaffAttendance />} />
+            <Route path="attendance/:classId" element={<Navigate to="/staff/dashboard" replace />} />
+            <Route path="attendance" element={<Navigate to="/staff/dashboard" replace />} />
             <Route path="history" element={<StaffHistory />} />
+            <Route path="reports" element={<StaffReports />} />
 
-            {/* NO reports page for staff */}
             {/* NO staff creation, CSV import, class creation, student management */}
           </Route>
         </Route>

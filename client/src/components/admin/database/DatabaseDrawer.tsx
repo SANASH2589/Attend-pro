@@ -94,110 +94,58 @@ export default function DatabaseDrawer({
               {/* Student Details */}
               {/* 1. Academic Information */}
               <div className="flex flex-col gap-3">
-                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1 flex items-center gap-1.5">
+                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1 flex items-center gap-1.5 select-none">
                   <GraduationCap className="w-3.5 h-3.5" />
                   Academic Information
                 </h5>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <span className="text-[10px] text-slate-400 font-semibold block">Department</span>
-                    <span className="font-semibold text-slate-700 mt-0.5 block">{record.department}</span>
+                    <span className="font-semibold text-slate-700 mt-0.5 block">{record.department || '—'}</span>
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 font-semibold block">Section</span>
-                    <span className="font-semibold text-slate-700 mt-0.5 block">{record.section}</span>
+                    <span className="font-semibold text-slate-700 mt-0.5 block">{record.section || '—'}</span>
                   </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-semibold block">Academic Year</span>
-                    <span className="font-semibold text-slate-700 mt-0.5 block">Year {record.year}</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-semibold block">Admission Year</span>
-                    <span className="font-semibold text-slate-700 mt-0.5 block">{record.admission_year}</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-semibold block">Lateral Entry</span>
-                    <span className="font-semibold text-slate-700 mt-0.5 block">{record.lateral_entry}</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-semibold block">Assigned Class</span>
-                    <span className="font-semibold text-slate-700 mt-0.5 block">{record.assigned_class}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* 2. Personal & Contact Information */}
-              <div className="flex flex-col gap-3">
-                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1 flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5" />
-                  Personal & Contact Details
-                </h5>
-                <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
-                    <span className="text-[10px] text-slate-400 font-semibold block">Email Address</span>
-                    <span className="font-semibold text-slate-700 mt-0.5 block truncate">{record.email || 'N/A'}</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-semibold block">Gender</span>
-                    <span className="font-semibold text-slate-700 mt-0.5 block">{record.gender}</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-semibold block">Student Mobile</span>
-                    <span className="font-semibold text-slate-700 mt-0.5 block">{record.student_phone || 'N/A'}</span>
+                    <span className="text-[10px] text-slate-400 font-semibold block">Assigned Class</span>
+                    <span className="font-semibold text-slate-700 mt-0.5 block">{record.assigned_class || '—'}</span>
                   </div>
                 </div>
               </div>
 
-              {/* 3. Parent Details */}
+              {/* 2. Contact Information */}
               <div className="flex flex-col gap-3">
-                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1 flex items-center gap-1.5">
+                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1 flex items-center gap-1.5 select-none">
                   <Phone className="w-3.5 h-3.5" />
-                  Parent & Guardian Details
+                  Contact Information
                 </h5>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <span className="text-[10px] text-slate-400 font-semibold block">Parent/Guardian Name</span>
-                    <span className="font-semibold text-slate-700 mt-0.5 block">{record.parent_name}</span>
+                    <span className="text-[10px] text-slate-400 font-semibold block">Parent Phone</span>
+                    <span className="font-semibold text-slate-700 mt-0.5 block select-text">{record.parent_phone}</span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-400 font-semibold block">Parent Phone Number</span>
-                    <span className="font-semibold text-slate-700 mt-0.5 block">{record.parent_phone}</span>
+                    <span className="text-[10px] text-slate-400 font-semibold block">Email</span>
+                    <span className="font-semibold text-slate-700 mt-0.5 block truncate select-text">{record.email || '—'}</span>
                   </div>
                 </div>
               </div>
 
-              {/* 4. Attendance Summary */}
+              {/* 3. Record Information */}
               <div className="flex flex-col gap-3">
-                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1 flex items-center gap-1.5">
-                  <ClipboardCheck className="w-3.5 h-3.5" />
-                  Attendance Summary
+                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1 flex items-center gap-1.5 select-none">
+                  <Calendar className="w-3.5 h-3.5" />
+                  Record Information
                 </h5>
-                <div className="bg-slate-50 border border-slate-100 rounded-xl p-3.5 flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-slate-500">Attendance Percentage</span>
-                    <span className="font-extrabold text-blue-600 text-sm">{record.attendance_percentage}%</span>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-semibold block">Created</span>
+                    <span className="font-semibold text-slate-700 mt-0.5 block leading-relaxed">{formatDate(record.created_at)}</span>
                   </div>
-                  <div className="h-2 bg-slate-200/80 rounded-full overflow-hidden">
-                    <div 
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        record.attendance_percentage < 50 ? 'bg-red-500' : record.attendance_percentage < 75 ? 'bg-amber-500' : 'bg-emerald-500'
-                      }`} 
-                      style={{ width: `${record.attendance_percentage}%` }}
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 text-center mt-1">
-                    <div className="bg-white p-2 rounded-lg border border-slate-200/40">
-                      <div className="text-[9px] text-slate-400 font-bold uppercase">Sessions</div>
-                      <div className="text-xs font-bold text-slate-700 mt-0.5">{record.total_sessions}</div>
-                    </div>
-                    <div className="bg-emerald-50/50 p-2 rounded-lg border border-emerald-100/30">
-                      <div className="text-[9px] text-emerald-500 font-bold uppercase">Present</div>
-                      <div className="text-xs font-bold text-emerald-600 mt-0.5">{record.present_count}</div>
-                    </div>
-                    <div className="bg-red-50/50 p-2 rounded-lg border border-red-100/30">
-                      <div className="text-[9px] text-red-500 font-bold uppercase">Absent</div>
-                      <div className="text-xs font-bold text-red-600 mt-0.5">{record.absent_count}</div>
-                    </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-semibold block">Updated</span>
+                    <span className="font-semibold text-slate-700 mt-0.5 block leading-relaxed">{formatDate(record.last_updated)}</span>
                   </div>
                 </div>
               </div>
@@ -207,7 +155,7 @@ export default function DatabaseDrawer({
               {/* Staff Details */}
               {/* 1. Professional Information */}
               <div className="flex flex-col gap-3">
-                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1 flex items-center gap-1.5">
+                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1 flex items-center gap-1.5 select-none">
                   <Shield className="w-3.5 h-3.5" />
                   Professional Profile
                 </h5>
@@ -229,7 +177,7 @@ export default function DatabaseDrawer({
 
               {/* 2. Contact Information */}
               <div className="flex flex-col gap-3">
-                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1 flex items-center gap-1.5">
+                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1 flex items-center gap-1.5 select-none">
                   <Phone className="w-3.5 h-3.5" />
                   Contact Information
                 </h5>
@@ -247,7 +195,7 @@ export default function DatabaseDrawer({
 
               {/* 3. Assigned Classes */}
               <div className="flex flex-col gap-3">
-                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1 flex items-center gap-1.5">
+                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1 flex items-center gap-1.5 select-none">
                   <GraduationCap className="w-3.5 h-3.5" />
                   Assigned Class Timetables
                 </h5>
@@ -263,26 +211,26 @@ export default function DatabaseDrawer({
                   )}
                 </div>
               </div>
+
+              {/* 4. Audit logs dates */}
+              <div className="flex flex-col gap-3 mt-2">
+                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1 flex items-center gap-1.5 select-none">
+                  <Calendar className="w-3.5 h-3.5" />
+                  Audit Log Details
+                </h5>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-semibold block">Created Date</span>
+                    <span className="font-semibold text-slate-700 mt-0.5 block leading-relaxed">{formatDate(record.created_at)}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 font-semibold block">Last Updated</span>
+                    <span className="font-semibold text-slate-700 mt-0.5 block leading-relaxed">{formatDate(record.last_updated)}</span>
+                  </div>
+                </div>
+              </div>
             </>
           )}
-
-          {/* 5. Audit logs dates */}
-          <div className="flex flex-col gap-3 mt-2">
-            <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1 flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5" />
-              Audit Log Details
-            </h5>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <span className="text-[10px] text-slate-400 font-semibold block">Created Date</span>
-                <span className="font-semibold text-slate-700 mt-0.5 block leading-relaxed">{formatDate(record.created_at)}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 font-semibold block">Last Updated</span>
-                <span className="font-semibold text-slate-700 mt-0.5 block leading-relaxed">{formatDate(record.last_updated)}</span>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
