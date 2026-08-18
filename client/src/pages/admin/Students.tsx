@@ -1,0 +1,481 @@
+import React, { useState, useEffect } from 'react';
+import Table, { TableColumn } from '../../components/ui/Table';
+import Button from '../../components/ui/Button';
+import Badge from '../../components/ui/Badge';
+import Modal from '../../components/ui/Modal';
+import StudentForm from '../../components/admin/StudentForm';
+import BulkImportModal from '../../components/admin/BulkImportModal';
+import studentsApi, { deleteStudent } from '../../api/students';
+import classesApi from '../../api/classes';
+import { useToast } from '../../context/ToastContext';
+import { Search, UserPlus, FileUp, Filter, AlertCircle, Pencil, UserX, Trash2 } from 'lucide-react';
+import { Student as StudentType } from '../../types/student';
+import { Class as ClassType } from '../../types/class';
+
+interface ExtendedStudent extends StudentType {
+  is_active?: boolean;
+  class_name?: string | null;
+}
+
+/**
+ * Student Registry Management Page.
+ * Handles enrollments, search filters, section mappings, and roster spreadsheet imports.
+ */
+export default function Students() {
+  const { showToast } = useToast();
+  const [students, setStudents] = useState<ExtendedStudent[]>([]);
+  const [classes, setClasses] = useState<ClassType[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [selectedClassId, setSelectedClassId] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(true);
+  const [actionLoading, setActionLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
+
+  // Modals state
+  const [isFormModalOpen, setIsFormModalOpen] = useState<boolean>(false);
+  const [editingStudent, setEditingStudent] = useState<ExtendedStudent | null>(null);
+  const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
+
+  const [confirmingDeactivateId, setConfirmingDeactivateId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const fetchData = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      // Fetch classes first for dropdown filter
+      const classesData = await classesApi.getAll();
+      setClasses(classesData);
+
+      // Fetch students with current filters
+      const studentsData = await studentsApi.getAll({
+        search: searchQuery,
+        class_id: selectedClassId
+      });
+      setStudents(studentsData as ExtendedStudent[]);
+    } catch (err: any) {
+      setError(err.message || 'Failed to retrieve database registries.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Re-fetch when filters change
+  useEffect(() => {
+    fetchData();
+  }, [selectedClassId]);
+
+  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      fetchData();
+    }
+  };
+
+  const handleSearchTrigger = () => {
+    fetchData();
+  };
+
+  const handleCreateOrUpdate = async (formData: any) => {
+    setActionLoading(true);
+    try {
+      if (editingStudent) {
+        const updated = await studentsApi.update(editingStudent.id, formData);
+        showToast(`Student profile "${updated.full_name}" updated successfully.`, 'success');
+      } else {
+        const created = await studentsApi.create(formData);
+        showToast(`Student profile "${created.full_name}" registered successfully.`, 'success');
+      }
+      setIsFormModalOpen(false);
+      setEditingStudent(null);
+      fetchData();
+    } catch (err) {
+      throw err; // propagates to form apiError banner
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeactivate = async (id: string, name: string) => {
+    setActionLoading(true);
+    try {
+      await studentsApi.deactivate(id);
+      showToast(`Student record for "${name}" has been deactivated.`, 'success');
+      setConfirmingDeactivateId(null);
+      fetchData();
+    } catch (err: any) {
+      showToast(err.message || 'Deactivation failed.', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReactivate = async (id: string, name: string) => {
+    setActionLoading(true);
+    try {
+      await studentsApi.update(id, { is_active: true } as any);
+      showToast(`Student record for "${name}" has been reactivated.`, 'success');
+      fetchData();
+    } catch (err: any) {
+      showToast(err.message || 'Reactivation failed.', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteStudent = async (studentId: string) => {
+    setActionLoading(true);
+    try {
+      const response = await deleteStudent(studentId);
+      
+      if (response.soft_deleted) {
+        showToast(
+          'Student has attendance records — marked as inactive instead of deleted.',
+          'warning'
+        );
+      } else {
+        showToast('Student deleted successfully.', 'success');
+      }
+
+      setConfirmDeleteId(null);
+      fetchData(); // refresh the list
+    } catch (err: any) {
+      showToast(
+        err.message || 'Failed to delete student.',
+        'error'
+      );
+      setConfirmDeleteId(null);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+
+
+  const columns: TableColumn<ExtendedStudent>[] = [
+    {
+      label: 'Roll No.',
+      key: 'roll_number',
+      render: (row) => (
+        <span style={{ width: '100px' }} className="inline-block font-mono text-[13px] text-[#2563EB] font-medium select-text">
+          {row.roll_number}
+        </span>
+      )
+    },
+    {
+      label: 'Name',
+      key: 'full_name',
+      render: (row) => (
+        <span className="text-[14px] text-[#0F172A] font-medium">
+          {row.full_name}
+        </span>
+      )
+    },
+    {
+      label: 'Dept',
+      key: 'department',
+      render: (row) => (
+        <span className="text-[13px] text-[#475569] font-medium">
+          {row.department || '—'}
+        </span>
+      )
+    },
+    {
+      label: 'Sec',
+      key: 'section',
+      render: (row) => (
+        <span className="text-[13px] text-[#475569] font-medium">
+          {row.section || '—'}
+        </span>
+      )
+    },
+    {
+      label: 'Parent Phone',
+      key: 'parent_phone',
+      render: (row) => (
+        <span className="text-[13px] text-[#475569] font-medium font-mono select-text">
+          {row.parent_phone}
+        </span>
+      )
+    },
+    {
+      label: 'Email',
+      key: 'email',
+      render: (row) => {
+        const email = row.email;
+        if (!email) return <span className="text-[13px] text-[#475569] font-medium">—</span>;
+        return (
+          <span 
+            className="text-[13px] text-[#475569] font-medium block max-w-[160px] truncate select-text"
+            title={email}
+          >
+            {email}
+          </span>
+        );
+      }
+    },
+    {
+      label: 'Assigned Class',
+      key: 'assigned_class',
+      render: (row) => (
+        row.assigned_class ? (
+          <Badge variant="info">
+            {row.assigned_class}
+          </Badge>
+        ) : (
+          <span className="text-slate-400/70 italic font-medium text-xs">—</span>
+        )
+      )
+    },
+    {
+      label: 'Status',
+      key: 'is_active',
+      render: (row) => (
+        <Badge variant={row.is_active ? 'success' : 'secondary'}>
+          {row.is_active ? 'Active' : 'Inactive'}
+        </Badge>
+      )
+    },
+    {
+      label: 'Created',
+      key: 'created_at',
+      render: (row) => {
+        if (!row.created_at) return <span className="text-[12px] text-[#94A3B8]">—</span>;
+        try {
+          return (
+            <span className="text-[12px] text-[#94A3B8] font-medium">
+              {new Date(row.created_at).toLocaleDateString('en-GB', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric'
+              })}
+            </span>
+          );
+        } catch {
+          return <span className="text-[12px] text-[#94A3B8]">—</span>;
+        }
+      }
+    },
+    {
+      label: 'Actions',
+      key: 'actions',
+      render: (row) => {
+        if (confirmingDeactivateId === row.id) {
+          return (
+            <div className="flex items-center gap-1.5 animate-fade-in">
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => handleDeactivate(row.id, row.full_name)}
+                disabled={actionLoading}
+                className="py-1 px-2.5 text-[11px]"
+              >
+                Confirm
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setConfirmingDeactivateId(null)}
+                disabled={actionLoading}
+                className="py-1 px-2.5 text-[11px]"
+              >
+                Cancel
+              </Button>
+            </div>
+          );
+        }
+
+        if (confirmDeleteId === row.id) {
+          return (
+            <div className="flex items-center gap-2 animate-fade-in">
+              <span className="text-[13px] text-red-600 font-medium whitespace-nowrap">Delete?</span>
+              <button
+                onClick={() => handleDeleteStudent(row.id)}
+                disabled={actionLoading}
+                className="text-xs px-2 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                Confirm
+              </button>
+              <button
+                onClick={() => setConfirmDeleteId(null)}
+                disabled={actionLoading}
+                className="text-xs px-2 py-1 border border-gray-200 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          );
+        }
+
+        return (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => {
+                setEditingStudent(row);
+                setIsFormModalOpen(true);
+              }}
+              className="p-1.5 rounded-md text-slate-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+              title="Edit Info"
+            >
+              <Pencil size={16} />
+            </button>
+            <button
+              onClick={() => {
+                if (row.is_active) {
+                  setConfirmingDeactivateId(row.id);
+                } else {
+                  handleReactivate(row.id, row.full_name);
+                }
+              }}
+              className={`p-1.5 rounded-md transition-colors ${
+                row.is_active 
+                  ? 'text-slate-400 hover:bg-amber-50 hover:text-amber-600' 
+                  : 'text-emerald-500 hover:bg-emerald-50 hover:text-emerald-600'
+              }`}
+              title={row.is_active ? 'Deactivate' : 'Activate'}
+            >
+              <UserX size={16} />
+            </button>
+            <button
+              onClick={() => setConfirmDeleteId(row.id)}
+              className="p-1.5 rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+              title="Delete student"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        );
+      }
+    }
+  ];
+
+  return (
+    <div className="flex flex-col gap-6 w-full">
+      {/* Page Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-slate-800 tracking-tight">Student Registry</h1>
+          <p className="text-xs text-slate-400 font-medium mt-0.5">Manage enrollment rosters, contact files, and upload spreadsheets.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="secondary"
+            onClick={() => setIsImportModalOpen(true)}
+          >
+            <FileUp className="w-4 h-4 mr-2 shrink-0 text-slate-500" />
+            Bulk Import CSV
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              setEditingStudent(null);
+              setIsFormModalOpen(true);
+            }}
+          >
+            <UserPlus className="w-4 h-4 mr-2 shrink-0" />
+            Add Student
+          </Button>
+        </div>
+      </div>
+
+      {/* Error display banner */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-2xl text-xs font-semibold flex items-start gap-3 animate-fade-in select-none">
+          <AlertCircle className="w-5 h-5 shrink-0 text-red-500 mt-0.5" />
+          <div className="flex-1 leading-relaxed">
+            <h4 className="font-bold">Failed to load registry</h4>
+            <p className="mt-0.5">{error}</p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={fetchData} className="shrink-0 border-red-200 text-red-700 hover:bg-red-100/50">
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {/* Control panel (Search & Filter) */}
+      <div className="bg-white p-4.5 rounded-2xl border border-slate-200/60 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 w-full select-none">
+        <div className="flex items-center gap-3 w-full max-w-xl">
+          {/* Search Input */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 shrink-0" />
+            <input
+              type="text"
+              placeholder="Search by name or roll number... (Press Enter)"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleSearchKeyPress}
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 hover:bg-slate-100/40 border border-slate-200/50 focus:border-blue-500/80 focus:bg-white rounded-xl text-xs font-medium text-slate-800 placeholder-slate-400 transition-all focus:outline-none focus:ring-4 focus:ring-blue-500/5"
+            />
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleSearchTrigger}
+            className="py-2 px-3 border border-slate-200 bg-white"
+          >
+            Search
+          </Button>
+          
+          <div className="w-px h-6 bg-slate-200 shrink-0" />
+
+          {/* Class Filter */}
+          <div className="relative flex items-center gap-2">
+            <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <select
+              value={selectedClassId}
+              onChange={(e) => setSelectedClassId(e.target.value)}
+              className="bg-slate-50 border border-slate-200/50 hover:border-slate-300 py-1.5 px-3 rounded-xl text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/10 cursor-pointer"
+            >
+              <option value="">All Class Sections</option>
+              {classes.map((cls) => (
+                <option key={cls.id} value={cls.id}>
+                  {cls.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="text-[10px] text-slate-400 font-semibold shrink-0">
+          Total: {students.length} student records displayed
+        </div>
+      </div>
+
+      {/* Data Table */}
+      <div className="w-full">
+        <Table
+          columns={columns}
+          data={students}
+          loading={loading}
+          emptyMessage="No student records matched your current filters."
+        />
+      </div>
+
+      {/* Enroll/Edit Student Form Modal */}
+      <Modal
+        isOpen={isFormModalOpen}
+        onClose={() => {
+          setIsFormModalOpen(false);
+          setEditingStudent(null);
+        }}
+        title={editingStudent ? `Update Profile: ${editingStudent.full_name}` : 'Enroll New Student'}
+      >
+        <StudentForm
+          student={editingStudent}
+          onSave={handleCreateOrUpdate}
+          onCancel={() => {
+            setIsFormModalOpen(false);
+            setEditingStudent(null);
+          }}
+          loading={actionLoading}
+        />
+      </Modal>
+
+      {/* Bulk CSV Import Modal */}
+      <BulkImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImportSuccess={fetchData}
+      />
+    </div>
+  );
+}
