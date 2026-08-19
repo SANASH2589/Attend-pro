@@ -1,12 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '../lib/supabase';
 import type { AuthenticatedUser } from '../types';
-
-// Service-role client — only used server-side, never expose this key to the client
-const supabaseAdmin: SupabaseClient = createClient(
-  process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
 
 async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
